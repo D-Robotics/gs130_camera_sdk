@@ -11,6 +11,10 @@ core/out/
 # runtime files
 *.bin
 
+# Python bytecode
+__pycache__/
+*.pyc
+
 # Editor / OS noise
 *.swp
 *~
