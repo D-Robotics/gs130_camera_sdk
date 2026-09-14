@@ -32,7 +32,13 @@ from ._internal._define import (
     GS130_CONFIG_RDKX5_GS130W,
     GS130_CONFIG_RDKX5_GS130WI,
 )
-from ._internal._lib import load, path, platform, version
+from ._internal._lib import (
+    load,
+    missing,
+    path,
+    platform,
+    version,
+)
 
 __all__ = [
     "GS130_CONFIG",
@@ -58,6 +64,7 @@ __all__ = [
     "gs130_reference_frame_t",
     "gs130_stereo_layout_t",
     "load",
+    "missing",
     "path",
     "platform",
     "version",

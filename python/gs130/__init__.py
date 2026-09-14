@@ -1,5 +1,6 @@
 """Python interface for the gs130 stereo camera and IMU."""
 
+from ._internal._version import __version__
 from ._ffi import (
     gs130_camera_index_t,
     gs130_camera_mode_t,
@@ -53,6 +54,7 @@ _ENUMS = (
 globals().update({member.name: member for enum in _ENUMS for member in enum})
 
 __all__ = [member.name for enum in _ENUMS for member in enum] + [
+    "__version__",
     "GS130Error",
     "Config",
     "CameraConfig",
