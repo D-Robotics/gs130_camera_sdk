@@ -12,6 +12,13 @@ from ._ffi import (
     platform,
     version as library_version,
 )
+from ._api._config import (
+    CameraConfig,
+    Config,
+    EepromConfig,
+    FifoConfig,
+    ImuConfig,
+)
 
 
 class GS130Error(RuntimeError):
@@ -47,6 +54,11 @@ globals().update({member.name: member for enum in _ENUMS for member in enum})
 
 __all__ = [member.name for enum in _ENUMS for member in enum] + [
     "GS130Error",
+    "Config",
+    "CameraConfig",
+    "ImuConfig",
+    "EepromConfig",
+    "FifoConfig",
     "library_path",
     "library_version",
     "platform",
