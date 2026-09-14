@@ -1,24 +1,17 @@
-"""The version of this Python package.
+"""The version of this installed package, from its distribution metadata.
 
-It comes from the same VERSION file the C library is built from, so the two can
-be compared: an installed package reports its metadata version, a source
-checkout reads the file next to core/.
+Running from a source checkout there is no distribution, so this is None and
+the version check in _lib has nothing to compare.
 """
 
 import importlib.metadata
-from pathlib import Path
-
-_VERSION_FILE = Path(__file__).resolve().parents[3] / "VERSION"
 
 
 def _read():
     try:
         return importlib.metadata.version("gs130")
     except importlib.metadata.PackageNotFoundError:
-        pass
-    if _VERSION_FILE.is_file():
-        return _VERSION_FILE.read_text().strip()
-    return None
+        return None
 
 
 __version__ = _read()
