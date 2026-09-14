@@ -24,10 +24,20 @@ namespace base {
 template <typename T>
 class Fifo {
 public:
-    Fifo(std::size_t depth, FifoMode mode): 
+    // Optional hook to release an item the FIFO drops or still holds when it dies
+    using Disposer = void (*)(T &);
+
+    Fifo(std::size_t depth, FifoMode mode, Disposer disposer = nullptr): 
         mode_(mode), buf_(depth), valid_(depth >= 2),
-        mtx_(std::make_unique<std::mutex>())
+        mtx_(std::make_unique<std::mutex>()), disposer_(disposer)
     {    
+    }
+
+    ~Fifo()
+    {
+        if(!valid_ || disposer_ == nullptr)return;
+        // the producer and the consumer are joined before the FIFO is destroyed
+        for(std::size_t i = 0; i < count_; i++)disposer_(buf_[(tail_ + i) % buf_.size()]);
     }
 
     // copying disabled
@@ -38,7 +48,7 @@ public:
     Fifo(Fifo &&other) noexcept: 
         mode_(other.mode_), buf_(std::move(other.buf_)),
         head_(other.head_), tail_(other.tail_), count_(other.count_),
-        valid_(other.valid_), mtx_(std::move(other.mtx_))
+        valid_(other.valid_), mtx_(std::move(other.mtx_)), disposer_(other.disposer_)
     {
         other.valid_ = false;
     }
@@ -52,6 +62,7 @@ public:
             count_ = other.count_;
             valid_ = other.valid_;
             mtx_   = std::move(other.mtx_);
+            disposer_ = other.disposer_;
             other.valid_ = false;
         }
         return *this;
@@ -65,6 +76,7 @@ public:
         std::lock_guard<std::mutex> lock(*mtx_);
         if(full_unlocked()){
             if(mode_ == FifoMode::DropNew)return false;
+            if(disposer_)disposer_(buf_[tail_]);   // release the item being overwritten
             tail_ = (tail_ + 1) % buf_.size();   // overwrite the oldest
         }
         else ++count_;
@@ -119,6 +131,7 @@ private:
     std::size_t count_ = 0;
     bool valid_;
     std::unique_ptr<std::mutex> mtx_;
+    Disposer disposer_;
 };
 
 } // namespace base

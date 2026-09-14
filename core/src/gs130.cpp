@@ -209,6 +209,14 @@ static void imu_thread_func(gs130_device_t *dev)
 
 // Camera thread: wait for the FSYNC handshake, start the stream, then fetch
 // half-frame-aligned stereo pairs and push them into the FIFO
+static void free_frame_pair(std::array<gs130_image_nv12_t, static_cast<std::size_t>(CamIndex::Num)> &pair)
+{
+    for(auto &image : pair) {
+        free(image.data);
+        image.data = nullptr;
+    }
+}
+
 static void camera_thread_func(gs130_device_t *dev)
 {
     while(dev->state.load() == Status::Ok && !dev->camera_on.load())usleep(1000);
@@ -331,7 +339,7 @@ static void camera_thread_func(gs130_device_t *dev)
         continue;
 
 free_frame:
-        for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++) { free(frame[i].data); }
+        free_frame_pair(frame);
     }
 }
 
@@ -414,8 +422,10 @@ gs130_err_t gs130_init(
     if(!*dev->pipeline)return GS130_NOT_FOUND;
 
     // Create the FIFOs (the Fifo constructor leaves itself invalid when depth < 2)
+    // Camera frames are malloc()'d by the camera thread, so the FIFO hands the
+    // frame it drops (or still holds when it dies) back to free_frame_pair()
     dev->camera_fifo.reset(new base::Fifo<std::array<gs130_image_nv12_t, 2>>(
-        cfg->camera_fifo.depth, static_cast<FifoMode>(cfg->camera_fifo.mode)));
+        cfg->camera_fifo.depth, static_cast<FifoMode>(cfg->camera_fifo.mode), free_frame_pair));
     dev->imu_fifo.reset(new base::Fifo<gs130_imu_packet_t>(
         cfg->imu_fifo.depth, static_cast<FifoMode>(cfg->imu_fifo.mode)));
 
