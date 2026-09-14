@@ -545,7 +545,7 @@ gs130_err_t gs130_get_nv12_frame(
     if(dev == nullptr || image_left == nullptr || image_right == nullptr)
         return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
-    if(dev->state.load() != Status::Ok)return GS130_THREAD_CLOSED;
+    if(const Status st = dev->state.load(); st != Status::Ok)return to_err(st);   // idle/never started = ThreadClosed, a fault reports itself
     if(dev->stereo_layout != GS130_STEREO_LAYOUT_NONE)return GS130_UNSUPPORTED;
     if(!dev->camera_fifo)return GS130_PARAM_ERROR;
 
@@ -563,7 +563,7 @@ gs130_err_t gs130_get_stereo_nv12_frame(
 {
     if(dev == nullptr || image == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
-    if(dev->state.load() != Status::Ok)return GS130_THREAD_CLOSED;
+    if(const Status st = dev->state.load(); st != Status::Ok)return to_err(st);   // idle/never started = ThreadClosed, a fault reports itself
     if(dev->stereo_layout == GS130_STEREO_LAYOUT_NONE)return GS130_UNSUPPORTED;
     if(!dev->camera_fifo)return GS130_PARAM_ERROR;
 
@@ -591,7 +591,7 @@ gs130_err_t gs130_get_imu_packet(
 {
     if(dev == nullptr || out == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
-    if(dev->state.load() != Status::Ok)return GS130_THREAD_CLOSED;
+    if(const Status st = dev->state.load(); st != Status::Ok)return to_err(st);   // idle/never started = ThreadClosed, a fault reports itself
     if(!dev->imu || !dev->imu_fifo)return GS130_PARAM_ERROR;
     if(!dev->imu_fifo->pop(*out))return GS130_TIMEOUT;
     return GS130_OK;
@@ -624,7 +624,7 @@ gs130_err_t gs130_get_camera_intrinsics(
     std::lock_guard<std::mutex> lock(dev->mtx);
     if(cam_idx != GS130_CAMERA_LEFT_IDX && cam_idx != GS130_CAMERA_RIGHT_IDX)return GS130_PARAM_ERROR;
     const Status st = dev->state.load();
-    if(st != Status::Ok && st != Status::ThreadClosed)return GS130_THREAD_CLOSED;   // faulted
+    if(st != Status::Ok && st != Status::ThreadClosed)return to_err(st);   // idle is fine here, a fault reports itself
     if(!dev->eeprom)return GS130_NOT_FOUND;
 
     const CameraIntrinsics &src = (cam_idx == GS130_CAMERA_LEFT_IDX) ? dev->cal_internal.cam_left
@@ -645,7 +645,7 @@ gs130_err_t gs130_get_imu_intrinsics(
     if(dev == nullptr || intrinsics == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
     const Status st = dev->state.load();
-    if(st != Status::Ok && st != Status::ThreadClosed)return GS130_THREAD_CLOSED;   // faulted
+    if(st != Status::Ok && st != Status::ThreadClosed)return to_err(st);   // idle is fine here, a fault reports itself
     if(!dev->eeprom)return GS130_NOT_FOUND;
 
     const ImuIntrinsics &src = dev->cal_internal.imu;
@@ -671,7 +671,7 @@ gs130_err_t gs130_get_relative_R(
     if(dev == nullptr || R == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
     const Status st = dev->state.load();
-    if(st != Status::Ok && st != Status::ThreadClosed)return GS130_THREAD_CLOSED;   // faulted
+    if(st != Status::Ok && st != Status::ThreadClosed)return to_err(st);   // idle is fine here, a fault reports itself
     if(!dev->eeprom)return GS130_NOT_FOUND;
 
     const auto from = frame_extrinsics(dev, from_frame);
@@ -691,7 +691,7 @@ gs130_err_t gs130_get_relative_T(
     if(dev == nullptr || T == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
     const Status st = dev->state.load();
-    if(st != Status::Ok && st != Status::ThreadClosed)return GS130_THREAD_CLOSED;   // faulted
+    if(st != Status::Ok && st != Status::ThreadClosed)return to_err(st);   // idle is fine here, a fault reports itself
     if(!dev->eeprom)return GS130_NOT_FOUND;
 
     const auto from = frame_extrinsics(dev, from_frame);
@@ -713,7 +713,7 @@ gs130_err_t gs130_get_calibration(
     if(dev == nullptr || calibration == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
     const Status st = dev->state.load();
-    if(st != Status::Ok && st != Status::ThreadClosed)return GS130_THREAD_CLOSED;   // faulted
+    if(st != Status::Ok && st != Status::ThreadClosed)return to_err(st);   // idle is fine here, a fault reports itself
     if(!dev->eeprom)return GS130_NOT_FOUND;
 
     static_assert(sizeof(gs130_calibration_t) == sizeof(StereoImuModel),
@@ -731,7 +731,7 @@ gs130_err_t gs130_convert_calibration(
     if(dev == nullptr || ref_R == nullptr || ref_T == nullptr)return GS130_PARAM_ERROR;
     std::lock_guard<std::mutex> lock(dev->mtx);
     const Status st = dev->state.load();
-    if(st != Status::Ok && st != Status::ThreadClosed)return GS130_THREAD_CLOSED;   // faulted
+    if(st != Status::Ok && st != Status::ThreadClosed)return to_err(st);   // idle is fine here, a fault reports itself
     if(!dev->eeprom)return GS130_NOT_FOUND;
 
     const auto anchor = frame_extrinsics(dev, ref_frame);
