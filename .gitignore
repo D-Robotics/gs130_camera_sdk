@@ -15,6 +15,15 @@ core/out/
 __pycache__/
 *.pyc
 
+# Python packaging artifacts
+python/build/
+python/dist/
+python/*.egg-info/
+python/test/gs130_images/
+
+# Test and tool caches
+.pytest_cache/
+
 # Editor / OS noise
 *.swp
 *~

@@ -1,15 +1,8 @@
-"""Python interface for the gs130 stereo camera and IMU."""
+"""Python interface for the GS130 stereo camera and IMU."""
 
-from ._api._calibration import Calibration, CameraIntrinsics, ImuIntrinsics
-from ._api._config import (
-    CameraConfig,
-    Config,
-    EepromConfig,
-    FifoConfig,
-    ImuConfig,
-)
-from ._api._device import Device, ImuPacket
-from ._api._enums import (
+from ._config import CameraConfig, Config, EepromConfig, FifoConfig, ImuConfig
+from ._device import Device
+from ._enums import (
     CameraIndex,
     CameraMode,
     DistModel,
@@ -18,11 +11,13 @@ from ._api._enums import (
     ReferenceFrame,
     StereoLayout,
 )
-from ._api._error import GS130Error
-from ._internal._version import __version__
+from ._error import GS130Error
+from ._runtime import __version__, library_version
+from ._types import Calibration, CameraIntrinsics, ImuIntrinsics, ImuPacket
 
 __all__ = [
     "__version__",
+    "library_version",
     "GS130Error",
     "ErrorCode",
     "FifoMode",
