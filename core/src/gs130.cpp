@@ -397,6 +397,10 @@ gs130_err_t gs130_init(
     std::lock_guard<std::mutex> lock(dev->mtx);
     if(dev->eeprom || dev->pipeline || dev->imu)return GS130_PARAM_ERROR;   // already initialized
     if(cfg->camera_config.stereo_layout > GS130_STEREO_LAYOUT_BOTTOM_TOP)return GS130_PARAM_ERROR;
+    // A queue shallower than 2 is invalid and would never hand out data; the IMU
+    // queue is only required when the config asks for an IMU
+    if(cfg->camera_fifo.depth < 2)return GS130_PARAM_ERROR;
+    if(cfg->imu_config.bus_num > 0 && cfg->imu_fifo.depth < 2)return GS130_PARAM_ERROR;
 
     // Create the EEPROM object: probe candidate buses in order, leave null on failure
     for(std::size_t i = 0; i < cfg->eeprom_config.bus_num; i++){
