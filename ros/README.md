@@ -3,29 +3,34 @@
 在 RDK X5 上把 `gs130_sdk` 的双目图像、IMU 与标定参数发布为标准 ROS 2 话题，
 并直接复用 D-Robotics TROS 已有的 `hobot_codec` 与 `websocket` 节点在浏览器中查看画面。
 
+节点是 **C++（ament_cmake）**，直接 `#include <gs130.h>` 并链接 `libgs130`，不经过 Python。
 本包**不实现**相机驱动、编解码、网页或深度算法：这些分别由 `gs130_sdk`、
 `hobot_codec`、`websocket` 和 `hobot_stereonet` 提供。
 
 ---
 
-## 1. 依赖
+## 1. 依赖与构建
 
 | 依赖 | 说明 |
 |---|---|
 | RDK X5 + TROS humble | `source /opt/tros/humble/setup.bash` |
-| `gs130` Python 包 | 本仓库 `python/`，用 `python/build-wheel.sh wheel` 构建后 `pip3 install` |
+| `libgs130` 与 `gs130.h` | 随 gs130_sdk 安装（`/usr/include/gs130.h`、`/lib/aarch64-linux-gnu/libgs130.so`） |
+| `rclcpp`、`sensor_msgs`、`geometry_msgs`、`tf2_ros` | TROS 自带 |
 | `hobot_codec`、`websocket` | TROS 自带，仅 Web 展示时需要 |
-| numpy、OpenCV | 板端已自带（1.26.4 / 4.11.0） |
 
-安装 gs130 Python 包与构建本包：
+构建（不需要安装任何 Python 包）：
 
 ```bash
-cd python && ./build-wheel.sh wheel && sudo pip3 install dist/gs130-*.whl
-
 mkdir -p ~/gs130_ws/src && cp -r ros/gs130_ros ~/gs130_ws/src/
 source /opt/tros/humble/setup.bash
 cd ~/gs130_ws && colcon build --packages-select gs130_ros
 source install/setup.bash
+```
+
+单元测试（纯函数，不需要相机）：
+
+```bash
+./build/gs130_ros/test_conversions      # 13 个用例
 ```
 
 ## 2. 快速开始
@@ -100,7 +105,7 @@ left, right = bgr[:, :640], bgr[:, 640:]           # 每目 (480, 640, 3)
 | `mode` | `resize` | `raw` / `resize` / `rect` | `raw` 要求 width/height 为 1088x1280 |
 | `width` / `height` | `640` / `480` | 正偶数 | 单目输出尺寸；NV12 要求偶数 |
 | `fps` | `30` | 1..33 | 相机帧率 |
-| `odr` | `200` | 见 IMU 型号 | IMU 输出速率 |
+| `odr` | `200` | `200` / `500` | IMU 输出速率；实测 100 会被 SDK 拒绝，500 实测 505 Hz |
 | `stereo_layout` | `left_right` | `none` / `left_right` / `right_left` / `top_bottom` / `bottom_top` | `none` 发布两目，其余发布一帧拼接图；实测 `left_right` 与 `top_bottom` 解码正确。`mode:=raw` 与任何拼接互斥 |
 | `frame_id_camera` | `camera_left` | 字符串 | TF 父坐标系 |
 | `frame_id_imu` | `imu_link` | 字符串 | IMU 坐标系 |
@@ -136,8 +141,16 @@ SDK 的时间戳是 **CLOCK_MONOTONIC（开机以来）**，不是 Unix 纪元�
 图像与 IMU 共用同一 offset，两者时间戳可直接互相比较
 （实测 IMU 包时间戳比同批图像晚约 8.6 ms）。
 
+实测补充（900 s）：该 offset 的漂移拟合为 **0.047 ms/min**（约 2.8 ms/小时），
+因此运行期不重算；但 IMU 消息的**到达时刻**可能比其时间戳晚最多约 25 ms
+（单线程中图像回调的拷贝与发布排在 IMU 回调之前）。
+**消费者必须按 `header.stamp` 对齐，不要按到达顺序对齐。**
+
 IMU 消息不包含姿态：SDK 不提供融合姿态，`orientation_covariance[0] = -1`
 表示不可用；角速度与加速度有实测值但无方差，协方差保持 0（未知）。
+
+`use_sim_time` 不受支持：设备时间戳是开机以来的单调时钟，无法映射到仿真时间，
+节点会直接拒绝并说明原因。
 
 ## 7. 故障排查
 

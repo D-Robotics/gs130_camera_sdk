@@ -1,4 +1,8 @@
-"""Launch arguments shared by the camera and web launch files."""
+"""Launch arguments shared by the camera and web launch files.
+
+Kept next to the launch files because this is an ament_cmake package and has no
+importable Python package of its own.
+"""
 
 from launch.substitutions import LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
@@ -10,7 +14,7 @@ CAMERA_ARGUMENTS = [
     ("mode", "resize", str, "camera mode: raw, resize or rect"),
     ("width", "640", int, "output width per eye"),
     ("height", "480", int, "output height per eye"),
-    ("fps", "30", int, "camera frame rate"),
+    ("fps", "30", int, "camera frame rate, 1 to 33"),
     ("odr", "200", int, "IMU output data rate"),
     ("stereo_layout", "left_right", str,
      "none publishes two eyes, a layout publishes one stitched frame"),
@@ -22,14 +26,14 @@ CAMERA_ARGUMENTS = [
 ]
 
 
-def camera_parameters(arguments=CAMERA_ARGUMENTS):
+def camera_parameters(arguments=None):
     """Declared launch arguments as typed node parameters.
 
-    The type matters: a launch argument is text, and rclpy refuses a string
-    override for an integer parameter, so conversion happens here, where a bad
-    value fails with a message that names the argument.
+    The type matters: a launch argument is text, and the node declares typed
+    parameters, so conversion happens here, where a bad value fails with a
+    message that names the argument instead of an uncaught exception.
     """
     return {
         name: ParameterValue(LaunchConfiguration(name), value_type=kind)
-        for name, _, kind, _ in arguments
+        for name, _, kind, _ in (arguments or CAMERA_ARGUMENTS)
     }

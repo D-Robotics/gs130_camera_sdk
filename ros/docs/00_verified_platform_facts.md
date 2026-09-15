@@ -172,6 +172,82 @@ width 640 height 960 decoded (640, 960, 3)
 
 ---
 
+## E11 C++ 节点实测（`libgs130` C API + rclcpp）
+
+`ros/gs130_ros` 已从 rclpy 改写为 ament_cmake 的 C++ 节点，直接 `#include <gs130.h>`
+并链接 `-lgs130`。实测：
+
+```
+gtest（无硬件）              13/13 通过
+640x480@30 启动              calibration / static tf baseline 0.070316 m / offset 正常
+20 s 计数                    frames=600 imu=4049   （30 fps / 202 Hz）
+1080p soak 12 min            frames=21450 (30.0 fps) imu=144484 (202 Hz) RSS 持平
+端到端 web 链路              /image_combine_raw 29.871 Hz，/image_combine_jpeg 29.750 Hz
+QoS offer 侧                 RELIABLE；codec 的 "offering incompatible QoS" 计数 = 0
+网页                         HTTP 200；抓帧 nx12 1280x480，左右目像素差 60.41
+SIGINT                       "camera released" + "process has finished cleanly"，无残留
+```
+
+## E12 C 的 preset 宏无法在 C++ 中使用（实测，构建约束）
+
+`gs130_define.h` 的 `GS130_CONFIG_*` 展开后使用 GNU 区间指定器（`[0 ... 3] = 0xFF`），
+**C++ 任何标准模式下都无法编译**（`gnu++17` 与 `gnu++20` 均报
+`expected identifier before numeric constant`）；而且它展开成花括号初始化器，
+只能用于**初始化**，不能赋值。
+
+因此本仓库用一个 C 翻译单元 `ros/gs130_ros/src/preset.c` 包一层：
+
+```c
+const gs130_config_t cfg = GS130_CONFIG_RDKX5_GS130WI(camera_mode, w, h, fps, odr);
+*out = cfg;
+```
+
+好处是 preset 的数值仍然只定义在 SDK 头文件里，不复制到 C++；并且这一层
+在未知 platform/device 时返回 -1 而**不会像宏那样 `exit(1)`**。
+实测：`GS130WI` → 1088x1280、mipi[4]=2、gpio[4]=351、imu_fifo=1024；
+`GS130W` → right_addr=0x31、imu bus_num=0、imu_fifo=0；未知平台 → -1。
+
+## E13 IMU 的 odr 只有 200 与 500 可用（实测）
+
+| odr | 结果 |
+|---|---|
+| 100 | `gs130_init()` 返回 `GS130_UNSUPPORTED`，节点启动失败 |
+| 200 | 正常，节点内部计数 202 Hz |
+| 500 | 正常，节点内部计数 505 Hz |
+
+设备的 `gs130_get_imu_info()` 也自述 `odr: 200 | 500 Hz`。
+节点已把 odr 校验为 {200, 500} 并在拒绝时给出可读信息。
+
+注意：`ros2 topic hz /imu/data` 在 odr=200 时只报约 150 Hz，**与节点内部计数不符**；
+CLI 订阅端跟不上 200–500 Hz 的小消息。速率判定必须用节点计数或 C++ 订阅端。
+
+## E14 抢流时 IMU 也会失败（实测，补充 E8）
+
+第二个持有者抢流后，先到者不只是图像停：实测其 IMU 计数先冻结，
+随后 `gs130_get_imu_packet()` 连续返回 `GS130_HW_ERROR(4)`；
+而抢流者拿到帧却拿不到 IMU（`imu=0`）。看门狗在此场景下准确触发一次。
+
+## E15 offset 漂移与 IMU 投递抖动（实测，900 s）
+
+以 IMU 话题（与图像共用同一 offset，消息极小）测量 `接收时刻 − header.stamp`，
+1 Hz 采样 900 s：
+
+```
+latency ms: first -0.12  last -17.20  min -23.64  max 1.78
+fitted slope: 0.047 ms/min        -> 约 2.8 ms/小时
+```
+
+结论：
+
+1. **一次性 offset 成立**：拟合漂移 0.047 ms/min，12 分钟会话累计不到 1 ms。
+   不要用首末差值（−17 ms）当漂移，那主要是投递抖动；判据必须用拟合斜率。
+2. **IMU 投递延迟抖动约 25 ms**：单线程 executor 中，一次图像回调要拷贝并发布
+   6.2 MB（1080p 时），IMU 回调排在其后。这不影响 `header.stamp` 的正确性
+   （stamp 来自设备时间戳 + 常量 offset），但消费者必须按 stamp 对齐，
+   不能按到达顺序对齐。
+3. 同一会话内节点保持健康：frames=27450（30 fps）、imu=184899（≈202 Hz），
+   SIGINT 后干净释放。
+
 ## 由实测得出的冻结决策
 
 | 编号 | 决策 | 依据 |

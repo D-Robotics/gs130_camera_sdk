@@ -3,16 +3,20 @@
 <package format="3">
   <name>gs130_ros</name>
   <version>0.1.0</version>
-  <description>ROS 2 interface for the GS130 stereo camera and IMU on RDK X5.</description>
+  <description>ROS 2 interface for the GS130 stereo camera and IMU on RDK X5, built on the gs130 C API.</description>
   <maintainer email="dev@example.com">gs130_sdk maintainers</maintainer>
   <license>MIT</license>
 
-  <depend>rclpy</depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2_ros</depend>
 
+  <test_depend>ament_cmake_gtest</test_depend>
+
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

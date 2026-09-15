@@ -5,11 +5,15 @@
 No web chain here: this is for applications that consume the topics.
 """
 
+import os
+import sys
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node
 
-from gs130_ros.launch_arguments import CAMERA_ARGUMENTS, camera_parameters
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gs130_arguments import CAMERA_ARGUMENTS, camera_parameters  # noqa: E402
 
 
 def generate_launch_description():

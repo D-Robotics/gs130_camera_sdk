@@ -8,6 +8,7 @@ hobot_codec encodes it to /image_combine_jpeg, and websocket serves it.
 """
 
 import os
+import sys
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -16,7 +17,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from gs130_ros.launch_arguments import CAMERA_ARGUMENTS, camera_parameters
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gs130_arguments import CAMERA_ARGUMENTS, camera_parameters  # noqa: E402
 
 WEB_ARGUMENTS = [
     ("image_topic", "/image_combine_raw", str, "NV12 topic the camera publishes"),
