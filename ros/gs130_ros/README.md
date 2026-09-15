@@ -166,6 +166,20 @@ a metric baseline taken from `P[3] / P[0]`.
   the baseline is right, but no target of known range has been placed in front
   of it.
 
+## Tests
+
+    cd ros/gs130_ros
+    python3 -m pytest test -q
+
+They import `gs130` when it is available and otherwise install a stand-in with
+the enum values copied out of `core/include/gs130.h`, so the conversions can be
+checked on a machine that has neither libgs130 nor the binding; on the board the
+real one is used.
+
+Under TROS, add `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`. TROS ships a
+`launch_testing` pytest plugin whose hooks do not match the pytest on the board,
+and pytest fails to start before it collects anything.
+
 ## Not implemented
 
 Zero-copy (`hbm_img_msgs` over shared memory), custom messages, IMU filtering,
