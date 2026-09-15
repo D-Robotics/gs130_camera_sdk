@@ -72,7 +72,7 @@ silently reorients everything downstream.
 | `platform` | `RDKX5` | Board, selects the preset. |
 | `device` | `GS130WI` | Camera model: `GS130WI` or `GS130W`. |
 | `camera_mode` | `rect` | `raw`, `resize` or `rect`. Only `rect` yields a stereo pair usable for depth. |
-| `image_width`, `image_height` | `1088`, `598` | Output size of **one** eye. See below for why 598. |
+| `image_width`, `image_height` | `640`, `350` | Output size of **one** eye. See [Feeding hobot_stereonet](#feeding-hobot_stereonet) for why. |
 | `framerate` | `30` | Camera frames per second. |
 | `imu_odr` | `200` | IMU output data rate in Hz. |
 | `stereo_layout` | `top_bottom` | `none`, `top_bottom`, `bottom_top`, `left_right`, `right_left`. |
@@ -155,11 +155,11 @@ Measured on an RDK X5 with a GS130WI, `rect`, 1088x1280 per eye, 30 fps:
 | Rectified baseline | 0.0703162 m, purely along x (off-axis < 1e-14 m) |
 | Rectified rotation | identity to 2.3e-14 |
 | Rectified intrinsics | fx = fy = 615.5139, cx = 544.0, cy = 640.0, distortion zeroed |
-| Output size | 1088x2560 stitched, exactly the configured 1088x1280 per eye |
+| Output size | exactly the configured size per eye, stitched to double the height |
 | Frame rate | 30.2 Hz published, camera_info alongside it at 30.1 Hz |
 | IMU | 201.5 Hz at `imu_odr:=200`, FSYNC handshake completed |
 | Stamp latency | 3 ms (IMU), 28 ms (image) behind the system clock |
-| `hobot_stereonet` | accepts the stream as `nv12` and derives baseline 0.070316 m |
+| `hobot_stereonet` | 15.0 fps end to end, depth 1.031x the geometric value |
 
 The last row is the whole point: with our camera_info, the official depth
 pipeline reports `[fx, fy, cx, cy, baseline(m), doffs]` as
@@ -178,109 +178,78 @@ a metric baseline taken from `P[3] / P[0]`.
   the baseline is right, but no target of known range has been placed in front
   of it.
 
-## Feeding stereonet the real calibration
+## Feeding hobot_stereonet
 
-Everything above hands `hobot_stereonet` a *rectified* camera: `CameraInfo` with
-zero distortion and a baseline, on an image the SDK already rectified. With
-`calib_method:=none` that is all it gets, and it then resizes the image to its
-model input and rescales the intrinsics, which is where both the stretch and
-the depth error come from.
+The official depth pipeline takes a 640x352 input and rescales whatever it is
+given to that shape. Three things follow, and the default output size is chosen
+to satisfy all of them at once:
 
-Its other mode, `calib_method:=custom`, rectifies from a calibration file
-instead, so it never resizes and never rescales -- but it needs the *raw*
-fisheye calibration, which the node cannot supply: under `rect` the C layer
-replaces the intrinsics and the rotation with virtual ones while initialising
-the camera, so by the time the node runs the real values are gone. They are
-still in the EEPROM, and opening the device without rectification hands them
-back. That is what `gs130_calibration` does:
+- The rescale does not preserve aspect. A 1088x1280 rectified pair became
+  640x352 by scaling x by 0.588 and y by 0.275, stretching the picture about
+  2.1x across.
+- The intrinsics are rescaled by the same two factors, and then rescaled
+  *again* in the resize branch (`stereonet_component.cpp:885`), which cost a
+  factor of 1.7 in every depth it reported. Measured against an independent
+  match of the same frame, its depth came out at 0.607x the geometric value.
+- 640x352 exactly is what avoids all of it, and the SDK will not produce it.
+  Its aspect-preserving crop demands an exact integer ratio (`vse.c`
+  `roi_ratio_exact`), which for a 640-wide output means the height has to be a
+  multiple of ten; 352 is not, and `gs130_init` returns `GS130_UNSUPPORTED`.
+
+**640x350 is the answer**, and it is the default. It is the closest height the
+SDK accepts at the model's own width, and because the width matches exactly the
+horizontal scale factor stereonet applies is 1.0 -- so the second rescaling
+leaves `fx` untouched, and the only residue is a 0.57% change in `fy` from the
+two-pixel height difference. Its own log, with no parameters set at all:
+
+    => sub rectified  [fx, fy, cx, cy, ...] : [362.067018, 364.135972, 320.0, 176.3, ...]
+    => after resize   [fx, fy, cx, cy, ...] : [362.067018, 366.216749, 320.0, 177.4, ...]
+                                               ^^^^^^^^^^ unchanged
+
+So the SDK does the rectification on its GDC hardware, the node publishes
+640x350 at 30 Hz, and stereonet's stock launch file reads it as it is:
+
+    ros2 launch gs130_ros gs130.launch.py
+    ros2 launch hobot_stereonet stereonet_model_no_web.launch.py
+
+Measured that way: 15.0 fps through stereonet, 140-160 ms latency, and depth at
+1.031x the geometric value over 165 confident matches. `image_width:=1088
+image_height:=1280` still gives the whole sensor field of view for anything
+that does not want the model's shape.
+
+### If you would rather stereonet did the rectifying
+
+`gs130_calibration` writes the device's real calibration -- the raw fisheye
+intrinsics and distortion of each eye, and the transform between them -- as the
+`cam0`/`cam1` YAML that `calib_method:=custom` reads. That path rectifies from
+the file instead of resizing, so it needs no particular image size, but it does
+the rectification on the CPU and runs at 8.5 fps against 15.0:
 
     ros2 run gs130_ros gs130_calibration --output ~/gs130_stereo_calib.yaml --fov-scale 0.455
-
-It writes the `stereo0/cam0/cam1` YAML stereonet reads: the equidistant
-intrinsics and distortion of each eye at the sensor resolution, and
-`T_cn_cnm1`, the transform from the left eye to the right.
-
-Then run the camera unrectified at the sensor size, and stereonet from the file:
 
     ros2 launch gs130_ros gs130.launch.py camera_mode:=raw image_height:=1280 stereo_layout:=top_bottom &
     ros2 launch hobot_stereonet stereonet_model_no_web.launch.py use_mipi_cam:=False \
       calib_method:=custom stereo_calib_file_path:=$HOME/gs130_stereo_calib.yaml \
       camera_info_topic:=/gs130_unused_right left_camera_info_topic:=/gs130_unused_left
 
-The two `camera_info_topic` overrides are not optional. In custom mode
-stereonet derives its intrinsics from the calibration file, and its
-`camera_info_callback` would overwrite them with ours scaled to model space --
-and if ours arrived first, the block that builds the rectification maps would
-never run at all. Pointing them at topics nobody publishes keeps the
-calibration file authoritative.
+The two `camera_info_topic` overrides are not optional there: in custom mode
+stereonet derives its intrinsics from the file, and its `camera_info_callback`
+would overwrite them with ours scaled to model space -- or, if ours arrived
+first, the block that builds the rectification maps would never run at all.
 
-With this, stereonet reports `width, height scale: [1, 1]` (the image
-resolution matches the calibration's, so nothing is rescaled), rectifies to
-`fx = fy = 294.511`, and the intrinsics are never doubled. Measured against an
-independent match of stereonet's own rectified images, its depth then comes out
-at **1.069x** the geometric value (median of 94 confident matches) where the
-`none` path gave 0.607x.
+The node cannot export that file itself: under `rect` the C layer replaces the
+intrinsics and the rotation with virtual ones while initialising the camera, so
+the real values are gone before the node is running. They are still in the
+EEPROM, and the tool opens the device without rectification to read them,
+which is why it is a tool and not part of the node.
 
-`--fov-scale` is optional and worth understanding. Left out, stereonet picks
-0.8, which on a GS130WI rectifies to a 124.7 degree horizontal field of view --
-wider than the fisheye's own 94.8 degrees -- so the rectified image has black
-wedges down both sides. 0.455 brings it to 94.75 degrees, matching the sensor,
-with no black. The fisheye's field of view follows from its equidistant focal
-length: `r = f * theta`, so with f = 657.65 px and a half-width of 544 px,
-`theta = 0.827 rad` and the horizontal field of view is 94.8 degrees.
-
-## Why the default height is 598
-
-The sensor rectifies to a portrait field of view, 1088x1280, while every depth
-model `hobot_stereonet` ships takes a 640x352 landscape input. When the two do
-not match, stereonet resizes the image to its model input with a plain
-`cv::resize`, which does not preserve aspect: 1088x1280 became 640x352 by
-scaling x by 0.588 and y by 0.275, stretching the picture about 2.1x across.
-Its own log says so:
-
-    => input image size not match model input size, need resize, [1088 x 1280] -> [640 x 352]
-
-It also rescales the intrinsics by the same two factors, so the depth scale is
-wrong by a second effect described below.
-
-`598 = 1088 * 352 / 640` is the height that gives one eye the model's 20:11
-aspect, so the resize becomes isotropic -- fx and fy come out 362.07 and 362.31
-instead of 362.07 and 169.27, and the picture is no longer distorted. It is also
-the nearest height that the SDK accepts: its aspect-preserving crop demands an
-exact integer ratio (`vse.c` `roi_ratio_exact`), and 640x352 itself is refused
-with `GS130_UNSUPPORTED` because 1088 * 352 is not a multiple of 640.
-
-The cost is field of view: the rectified image is cropped to a centred
-landscape band, roughly half its height. Pass `image_height:=1280` to get the
-whole sensor back and accept the stretch in stereonet's rendering.
-
-## stereonet reports depth about 1.7x too small
-
-Measured, with the aspect already matched: an independent zero-mean
-normalised-cross-correlation match of the same frame, using the baseline the
-device reports, gives distances that stereonet's published depth map scales by
-a median factor of 0.607 (81 confident matches, ZNCC >= 0.85). Its log shows
-why:
-
-    => sub rectified                     [fx, fy, ...] : [362.067, 362.309, ...]
-    => after resize, update camera intrinsic [fx, fy, ...] : [212.981, 213.266, ...]
-
-362.067 is `615.514 * 640/1088`, the intrinsics correctly rescaled into its
-640x352 model space. 212.981 is that scaled by 0.588 a second time, and
-212.981/362.067 = 0.588 is the factor the ratio above shows up as.
-
-The second scaling sits inside the same resize branch and is guarded by
-`camera_info_updated_`, which its `camera_info_callback` sets before it
-finishes -- so by the time an image is preprocessed the guard should already be
-true and the branch should be skipped. It is not, and delaying the camera_info
-to arrive after the first frame does not change it, so the guard does not
-behave the way the source reads. `stereonet_component.cpp:885-897` is the code
-in question.
-
-This is on stereonet's side and cannot be fixed from a publisher without
-publishing intrinsics that are wrong for everyone else. It is also why the
-`calib_method:=custom` setup above exists: that path rectifies from a
-calibration file and never enters this branch, so the depth comes out right.
+`--fov-scale` is worth knowing about. Left out, stereonet picks 0.8, which
+rectifies to a 124.7 degree horizontal field of view -- wider than the
+fisheye's own 94.8 degrees -- so the picture has black wedges down both sides.
+0.455 matches the sensor and removes them; the fisheye's field of view follows
+from its equidistant focal length, `r = f * theta`, so with f = 657.65 px and a
+half-width of 544 px, theta = 0.827 rad and the horizontal field of view is
+94.8 degrees.
 
 ## A note on capture threads
 

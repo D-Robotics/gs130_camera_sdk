@@ -23,12 +23,16 @@ ARGUMENTS = (
     ("platform", "RDKX5", "Board the camera is attached to (RDKX5)"),
     ("device", "GS130WI", "Camera model (GS130WI, GS130W)"),
     ("camera_mode", "rect", "ISP path (raw, resize, rect)"),
-    ("image_width", "1088", "Output width of one eye, in pixels"),
+    (
+        "image_width",
+        "640",
+        "Output width of one eye; 640 is the width the depth models take",
+    ),
     (
         "image_height",
-        "598",
-        "Output height of one eye, in pixels; 598 keeps the 1088x352/640 aspect "
-        "the depth models expect, 1280 is the full sensor field of view",
+        "350",
+        "Output height of one eye; 350 is the closest to the models' 352 the "
+        "SDK accepts at that width",
     ),
     ("framerate", "30", "Frames per second"),
     ("imu_odr", "200", "IMU output data rate in Hz"),

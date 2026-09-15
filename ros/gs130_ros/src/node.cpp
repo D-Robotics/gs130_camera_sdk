@@ -264,16 +264,17 @@ void Gs130Node::declare_parameters()
   declare_parameter("platform", "RDKX5");
   declare_parameter("device", "GS130WI");
   declare_parameter("camera_mode", "rect");
-  // 1088x598 is not a round number, and it is the one that matters: an RDK X5
-  // with a GS130WI rectifies to a portrait field, while the depth models
-  // hobot_stereonet runs take a 640x352 landscape input.  598 = 1088 * 352/640
-  // keeps that aspect, so stereonet's resize is isotropic instead of stretching
-  // the image by 2.1x across.  It is also the nearest height the SDK accepts:
-  // its aspect-preserving crop demands an exact integer ratio, and 352 is not
-  // one for a 1088-wide source.  Set image_height:=1280 for the full sensor
-  // field of view and accept the stretch in stereonet's rendering.
-  declare_parameter("image_width", 1088);
-  declare_parameter("image_height", 598);
+  // 640x350 is the size the official depth pipeline wants, within what the SDK
+  // can produce.  hobot_stereonet's models take a 640x352 input, and it rescales
+  // whatever it is given to that: an image of another shape is stretched, and
+  // the intrinsics are rescaled twice, which cost a factor of 1.7 in depth.
+  // 640x352 itself the SDK refuses -- its aspect-preserving crop demands an
+  // exact integer ratio (vse.c roi_ratio_exact), and for a 640-wide output the
+  // height has to be a multiple of ten -- so 640x350 is the closest it will
+  // take.  Because the width matches the model's exactly, the horizontal scale
+  // factor is 1.0 and the second rescaling leaves fx alone.
+  declare_parameter("image_width", 640);
+  declare_parameter("image_height", 350);
   declare_parameter("framerate", 30);
   declare_parameter("imu_odr", 200);
   declare_parameter("stereo_layout", "top_bottom");
