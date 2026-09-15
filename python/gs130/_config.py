@@ -1,7 +1,6 @@
 """Nested dictionary configuration and C conversion."""
 
-from . import _abi
-from ._enums import CameraIndex, CameraMode, FifoMode, StereoLayout
+from . import _abi, _presets
 
 
 _SECTIONS = {
@@ -23,46 +22,13 @@ _SECTIONS = {
 
 def preset(platform, device, mode, width, height, fps, odr):
     """Return a mutable nested-dict configuration for known hardware."""
-    if platform != "RDKX5" or device not in {"GS130WI", "GS130W"}:
-        raise ValueError("unsupported platform/device: %s %s" % (platform, device))
-
-    has_imu = device == "GS130WI"
-    return {
-        "camera_config": {
-            "bus": [4, 6],
-            "left_addr": 0x30,
-            "right_addr": 0x32 if has_imu else 0x31,
-            "sensor_width": 1088,
-            "sensor_height": 1280,
-            "fps": fps,
-            "line_length": 1400,
-            "frame_length": 1500,
-            "tuning_file": None,
-            "output_width": width,
-            "output_height": height,
-            "mode": CameraMode(mode),
-            "stereo_layout": StereoLayout.NONE,
-            "bus_mipi_rx": {4: 2, 6: 0},
-            "bus_reset_gpio": {4: 351, 6: 353},
-            "fsync_camera": CameraIndex.RIGHT,
-        },
-        "imu_config": {
-            "bus": [4, 6] if has_imu else [],
-            "addr": 0x68,
-            "odr_hz": odr,
-            "accel_fsr_g": 16,
-            "gyro_fsr_dps": 2000,
-            "accel_bw_sel": 0,
-            "gyro_bw_sel": 0,
-        },
-        "eeprom_config": {"bus": [4, 6], "addr": 0x50},
-        "camera_fifo": {"depth": 4, "mode": FifoMode.DROP_OLD},
-        "imu_fifo": (
-            {"depth": 1024, "mode": FifoMode.DROP_OLD}
-            if has_imu else
-            {"depth": 0, "mode": FifoMode.DROP_NEW}
-        ),
-    }
+    try:
+        make = _presets.PRESETS[(platform, device)]
+    except KeyError:
+        raise ValueError(
+            "unsupported platform/device: %s %s" % (platform, device)
+        ) from None
+    return make(mode, width, height, fps, odr)
 
 
 def _validate(config):
