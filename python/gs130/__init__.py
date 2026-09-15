@@ -16,6 +16,9 @@ back, so a capture loop only has to test for that.  Everything else raises
 :class:`GS130Error`, carrying the code the SDK reported.
 """
 
+import importlib.metadata
+
+from . import _abi
 from ._config import config
 from ._device import Device, GS130Error
 from ._preset import preset
@@ -34,6 +37,27 @@ from ._types import (
     StereoLayout,
 )
 
+
+def package_version():
+    """Return the installed gs130 version, or ``None`` when it is not installed.
+
+    The version is fixed when the wheel is built, so it comes from the package
+    metadata rather than from any file in the source tree.
+    """
+    try:
+        return importlib.metadata.version("gs130")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+__version__ = package_version()
+
+# Loading here is what runs the version check; see _abi.load.
+_abi.load(__version__)
+
+library_version = _abi.library_version
+library_platform = _abi.library_platform
+
 __all__ = [
     "Device",
     "GS130Error",
@@ -44,6 +68,8 @@ __all__ = [
     "Calibration",
     "config",
     "preset",
+    "library_version",
+    "library_platform",
     "ErrorCode",
     "CameraMode",
     "CameraIndex",

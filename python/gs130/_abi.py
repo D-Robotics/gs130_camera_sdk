@@ -18,6 +18,7 @@ from __future__ import annotations
 import ctypes as C
 import ctypes.util
 import os
+import warnings
 from enum import IntEnum
 
 
@@ -363,15 +364,63 @@ def _open(path):
     return library
 
 
-def load():
-    """Return the process-wide libgs130 handle with all declarations applied."""
+def _version_tuple(text):
+    numbers = []
+    for part in text.split("+", 1)[0].split("-", 1)[0].split("."):
+        if not part.isdigit():
+            break
+        numbers.append(int(part))
+    return tuple(numbers)
+
+
+def _check_version(package, library_version):
+    """Compare the package with the library that was just loaded.
+
+    A newer library may have moved a field that this module mirrors, which
+    would corrupt memory instead of failing, so it is refused.  An older one is
+    only worth a warning: its missing symbols are caught when they are bound.
+
+    ``package`` is ``None`` when gs130 is not installed, which skips the check.
+    """
+    if package is None or package == library_version:
+        return
+    if _version_tuple(package) > _version_tuple(library_version):
+        warnings.warn(
+            "gs130 package %s is newer than libgs130 %s"
+            % (package, library_version),
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    else:
+        raise RuntimeError(
+            "gs130 package %s is older than libgs130 %s; the package mirrors "
+            "the C structures and would misread them"
+            % (package, library_version)
+        )
+
+
+def load(version=None):
+    """Return the process-wide libgs130 handle with all declarations applied.
+
+    ``version`` is the gs130 package version to compare the library against;
+    the check runs once, on the first load.
+    """
     global _library
     if _library is None:
-        _library = _open(_resolve())
+        library = _open(_resolve())
+        if version is not None:
+            _check_version(version, library.gs130_version().decode())
+        _library = library
     return _library
 
 
 def library_version():
     """Return the loaded libgs130 version string, or ``None``."""
     value = load().gs130_version()
+    return value.decode() if value else None
+
+
+def library_platform():
+    """Return the platform libgs130 was built for, such as ``"rdkx5"``."""
+    value = load().gs130_platform()
     return value.decode() if value else None
