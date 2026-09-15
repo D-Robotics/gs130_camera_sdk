@@ -96,8 +96,8 @@ typedef struct gs130_imu_config_s{
     uint32_t odr_hz;
     uint16_t accel_fsr_g;
     uint16_t gyro_fsr_dps;
-    uint8_t accel_bw_sel;   /* UI filter level 0..7, see info() for bandwidth */
-    uint8_t gyro_bw_sel;    /* 0xFF = not set */
+    uint8_t accel_bw_sel;   /* accel UI filter setting 0..F, see info() for bandwidths */
+    uint8_t gyro_bw_sel;    /* gyro UI filter setting 0..F, see info() for bandwidths */
 }gs130_imu_config_t;
 
 /** EEPROM (calibration data) configuration. */
