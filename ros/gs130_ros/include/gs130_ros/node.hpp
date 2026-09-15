@@ -34,40 +34,11 @@
 
 #include "gs130.h"
 
+#include "gs130_ros/config.hpp"
 #include "gs130_ros/convert.hpp"
 
 namespace gs130_ros
 {
-
-/// A call into libgs130 failed, carrying the code it reported.
-class Gs130Error : public std::runtime_error
-{
-public:
-  Gs130Error(gs130_err_t code, const std::string & function);
-
-  gs130_err_t code() const {return code_;}
-  const std::string & function() const {return function_;}
-
-private:
-  gs130_err_t code_;
-  std::string function_;
-};
-
-/// Raise Gs130Error unless the C call reported GS130_OK.
-void check(gs130_err_t code, const std::string & function);
-
-/// The device configuration for a known board and camera model.
-///
-/// Mirrors the GS130_CONFIG_RDKX5_* macros in gs130_define.h, which this node
-/// cannot use: they initialise arrays with GNU range designators, which g++
-/// rejects outright.  The macros also call exit(1) for an unknown board, where
-/// a launch file needs an error it can report.
-///
-/// Throws std::invalid_argument for a board and model with no preset.
-gs130_config_t make_config(
-  const std::string & platform, const std::string & device,
-  gs130_camera_mode_t mode, uint32_t width, uint32_t height, uint32_t fps,
-  uint32_t odr, gs130_stereo_layout_t layout);
 
 /// Decides what stamp a message gets, and holds that decision.
 ///

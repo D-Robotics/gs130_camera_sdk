@@ -24,7 +24,12 @@ ARGUMENTS = (
     ("device", "GS130WI", "Camera model (GS130WI, GS130W)"),
     ("camera_mode", "rect", "ISP path (raw, resize, rect)"),
     ("image_width", "1088", "Output width of one eye, in pixels"),
-    ("image_height", "1280", "Output height of one eye, in pixels"),
+    (
+        "image_height",
+        "598",
+        "Output height of one eye, in pixels; 598 keeps the 1088x352/640 aspect "
+        "the depth models expect, 1280 is the full sensor field of view",
+    ),
     ("framerate", "30", "Frames per second"),
     ("imu_odr", "200", "IMU output data rate in Hz"),
     (

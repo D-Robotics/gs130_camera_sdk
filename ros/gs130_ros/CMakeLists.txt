@@ -48,6 +48,14 @@ message(STATUS "gs130 ${GS130_ROS_VERSION}: header ${GS130_INCLUDE_DIR}, library
 
 # The conversions, in a library of their own so the tests can link them
 # without libgs130: they touch the C header's types but call none of it.
+# Configuration only needs gs130.h, so tools can build against it without
+# rclcpp or the generated messages.
+add_library(gs130_ros_config src/config.cpp)
+target_include_directories(gs130_ros_config PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  ${GS130_INCLUDE_DIR})
+target_link_libraries(gs130_ros_config ${GS130_LIBRARY})
+
 add_library(gs130_ros_convert src/convert.cpp)
 target_include_directories(gs130_ros_convert PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -59,7 +67,7 @@ ament_target_dependencies(gs130_ros_convert
 
 add_executable(gs130_node src/main.cpp src/node.cpp)
 target_include_directories(gs130_node PRIVATE ${GS130_INCLUDE_DIR})
-target_link_libraries(gs130_node gs130_ros_convert ${GS130_LIBRARY})
+target_link_libraries(gs130_node gs130_ros_convert gs130_ros_config ${GS130_LIBRARY})
 ament_target_dependencies(gs130_node
   rclcpp
   sensor_msgs
@@ -67,7 +75,16 @@ ament_target_dependencies(gs130_node
   builtin_interfaces
   tf2_ros)
 
-install(TARGETS gs130_node
+# A tool rather than part of the node: the raw calibration can only be read
+# from a device opened without rectification, and the node exists to publish
+# one that is rectified.
+add_executable(gs130_calibration src/calibration.cpp)
+target_include_directories(gs130_calibration PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${GS130_INCLUDE_DIR})
+target_link_libraries(gs130_calibration gs130_ros_config ${GS130_LIBRARY})
+
+install(TARGETS gs130_node gs130_calibration
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME})
