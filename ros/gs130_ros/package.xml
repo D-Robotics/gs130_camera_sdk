@@ -4,27 +4,26 @@
   <name>gs130_ros</name>
   <version>0.0.1</version>
   <description>
-    Publishes the GS130 stereo camera and IMU as standard ROS 2 messages.
-    Requires the gs130 Python binding and libgs130 from the gs130_sdk
-    repository; neither is a rosdep key, so both are installed from that
-    checkout rather than by rosdep.
+    Publishes the GS130 stereo camera and IMU as standard ROS 2 messages by
+    calling the SDK's C API directly.  Needs libgs130 and gs130.h, both of
+    which come from the gs130_sdk repository; neither is a rosdep key, so the
+    build looks for them on the system and in the checkout.
   </description>
   <maintainer email="hachi-leaf@users.noreply.github.com">hachi-leaf</maintainer>
   <license>MIT</license>
   <url type="repository">https://github.com/hachi-leaf/gs130_sdk</url>
 
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>python3-numpy</exec_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>tf2_ros</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

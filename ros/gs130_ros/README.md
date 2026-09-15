@@ -1,28 +1,33 @@
 # gs130_ros
 
-Publishes a GS130 stereo camera and its IMU as standard ROS 2 messages.
+Publishes a GS130 stereo camera and its IMU as standard ROS 2 messages, by
+calling the SDK's C API directly.
 
-The node is a thin mapping of the C API in `core/` onto `sensor_msgs`, so the
-streams drop into the official D-Robotics perception stack. It does no image
-processing, no stereo matching and no filtering.
+C++ with `rclcpp` and `ament_cmake`, linking `libgs130.so`. The node is a thin
+mapping of `gs130.h` onto `sensor_msgs`, so the streams drop into the official
+D-Robotics perception stack. It does no image processing, no stereo matching
+and no filtering.
 
 ## What it needs
 
-- ROS 2 Humble, or TROS (`/opt/tros/humble`), on an RDK X5.
-- `libgs130.so` for the platform, installed where the loader finds it.
-- The `gs130` Python binding, built from this repository:
+- ROS 2 Humble, or TROS, on an RDK X5. TROS is an overlay on the plain ROS
+  install, and only the overlay has the D-Robotics packages, so source both:
 
-      cd gs130_sdk
-      pip3 install ./python
+      source /opt/ros/humble/setup.bash    # rclcpp and the build system
+      source /opt/tros/humble/setup.bash   # hobot_stereonet and friends
 
-  The binding loads `libgs130` and refuses a library older than itself, so
-  install the two from the same checkout. Neither is a rosdep key, which is why
-  `package.xml` does not list them.
+- `libgs130.so` and `gs130.h`. Building from the `gs130_sdk` checkout finds the
+  header next to this package; a standalone build needs `GS130_ROOT`, or
+  `-DGS130_LIBRARY=` and `-DGS130_INCLUDE_DIR=`. Neither is a rosdep key, which
+  is why `package.xml` does not list them.
 
 ## Build and run
 
     mkdir -p ~/ws/src && ln -s "$PWD/ros/gs130_ros" ~/ws/src/gs130_ros
-    cd ~/ws && source /opt/tros/humble/setup.bash && colcon build
+    cd ~/ws
+    source /opt/ros/humble/setup.bash
+    source /opt/tros/humble/setup.bash
+    colcon build --packages-select gs130_ros
     source install/setup.bash
     ros2 launch gs130_ros gs130.launch.py
 
@@ -82,6 +87,13 @@ silently reorients everything downstream.
 The presets pin `stereo_layout` to `NONE` in C (`gs130_define.h:30`), which is
 why the layout is a parameter applied on top of them rather than a preset
 choice.
+
+`make_config()` in `src/node.cpp` mirrors the `GS130_CONFIG_*` macros field by
+field instead of calling them, because it has to: the macros initialise their
+arrays with GNU range designators (`[0 ... 3] = 0xFF`), which `g++` rejects
+outright -- `gcc -std=gnu99` accepts them, `g++ -std=gnu++17` does not. They
+also `exit(1)` on an unknown board, where a launch file needs an error it can
+report. The two are kept comparable line by line.
 
 ## Where this differs from `hobot_mipi_cam`
 
@@ -166,29 +178,39 @@ a metric baseline taken from `P[3] / P[0]`.
   the baseline is right, but no target of known range has been placed in front
   of it.
 
+## A note on capture threads
+
+Capture runs on two dedicated `std::thread`s, not on `rclcpp` timers, the same
+way the official node does it. That is not only a matter of taste: on the TROS
+`rclcpp` an `rclcpp` timer bound to an explicitly created callback group never
+fires under `MultiThreadedExecutor` -- the node starts, the publisher exists,
+and not one frame is published -- while the identical timer on the node's
+default callback group works, and `executor.add_callback_group()` for those
+groups then reports they were already added. Threads do not depend on the
+executor's callback-group bookkeeping at all, so the node keeps working
+whatever that behaviour turns out to be.
+
 ## Tests
 
-    cd ros/gs130_ros
-    python3 -m pytest test -q
+    cd ~/ws && colcon test --packages-select gs130_ros && colcon test-result --all
 
-They import `gs130` when it is available and otherwise install a stand-in with
-the enum values copied out of `core/include/gs130.h`, so the conversions can be
-checked on a machine that has neither libgs130 nor the binding; on the board the
-real one is used.
+or run the binary directly:
 
-Under TROS, add `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`. TROS ships a
-`launch_testing` pytest plugin whose hooks do not match the pytest on the board,
-and pytest fails to start before it collects anything.
+    ./build/gs130_ros/test_convert
+
+They cover the conversions only, and link just `gs130_ros_convert` and the
+generated messages -- never `libgs130`, because the conversions use the C
+header's types and call none of it. So they run on a machine with no camera and
+no library installed, which is where most of this package's logic belongs.
+
+The packed-frame test builds the stitched NV12 buffer from the offsets in
+`gs130.cpp` rather than from `slice_eyes`, so the layout the node writes and the
+layout it reads back are checked against each other rather than against
+themselves.
 
 ## Not implemented
 
 Zero-copy (`hbm_img_msgs` over shared memory), custom messages, IMU filtering,
 online reconfiguration, multi-device synchronisation, and any image processing.
-
-## A note on the image payload
-
-`sensor_msgs/Image.data` is filled with an `array.array("B")`, not a `bytes`.
-Both are valid, and on an RDK X5 the difference is the whole frame rate: rclpy
-fills a `uint8[]` field one element at a time when handed a `bytes`, which costs
-3.3 seconds for a 1088x2560 NV12 frame, against 0.8 ms for an `array.array`.
-`test_convert.py` asserts the type for that reason.
+The node is a plain executable, not an `rclcpp_components` component, so it
+cannot be composed into a container with `hobot_stereonet`.
