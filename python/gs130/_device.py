@@ -5,7 +5,7 @@ import ctypes
 import numpy as np
 
 from . import _abi, _runtime
-from ._config import Config, to_c
+from ._config import to_c
 from ._enums import CameraIndex, ErrorCode, ReferenceFrame, StereoLayout
 from ._error import GS130Error, check
 from ._types import (
@@ -21,8 +21,6 @@ class Device:
     """An initialized GS130 camera; call :meth:`start` before reading."""
 
     def __init__(self, config):
-        if not isinstance(config, Config):
-            raise TypeError("Device() expects Config, got %s" % type(config).__name__)
         self._c_config = to_c(config)
         self._stitched = (
             self._c_config.camera_config.stereo_layout != StereoLayout.NONE

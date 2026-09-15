@@ -1,6 +1,6 @@
 """Python interface for the GS130 stereo camera and IMU."""
 
-from ._config import CameraConfig, Config, EepromConfig, FifoConfig, ImuConfig
+from ._config import preset
 from ._device import Device
 from ._enums import (
     CameraIndex,
@@ -26,11 +26,7 @@ __all__ = [
     "StereoLayout",
     "DistModel",
     "ReferenceFrame",
-    "Config",
-    "CameraConfig",
-    "ImuConfig",
-    "EepromConfig",
-    "FifoConfig",
+    "preset",
     "Device",
     "ImuPacket",
     "Calibration",

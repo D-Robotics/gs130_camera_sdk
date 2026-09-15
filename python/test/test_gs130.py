@@ -140,7 +140,7 @@ def main():
     print("python package:", gs130.__version__)
     print("libgs130:", gs130.library_version())
 
-    config = gs130.Config.preset(
+    config = gs130.preset(
         platform, device_name, mode, width, height, fps, odr
     )
 
