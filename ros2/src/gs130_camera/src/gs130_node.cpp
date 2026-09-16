@@ -1,7 +1,16 @@
-// Copyright (c) 2026 D-Robotics.
-// SPDX-License-Identifier: MIT
-//
-// Maps the GS130 stereo camera and IMU onto standard ROS 2 messages.
+/**
+ * @file gs130_node.cpp
+ * @brief ROS 2 node for publishing GS130 stereo images, calibration, IMU data, and TF.
+ *
+ * The node owns one SDK device handle, copies SDK-allocated frame buffers into
+ * sensor_msgs messages, publishes camera calibration when an EEPROM is present,
+ * and broadcasts the calibrated sensor transforms.
+ *
+ * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
+ * Copyright (c) 2026 D-Robotics.
+ * SPDX-License-Identifier: MIT
+ * See the LICENSE file in the project root for the full license text.
+ */
 
 #include <chrono>
 #include <cmath>
@@ -30,16 +39,26 @@ namespace gs130_camera
 namespace
 {
 
-constexpr int kImageQosDepth = 5;   // matches mipi_cam
+// Keep image QoS compatible with the existing mipi_cam topic convention.
+constexpr int kImageQosDepth = 5;
 constexpr int kImuQosDepth = 10;
 
-/// NV12 is a Y plane followed by one interleaved UV plane.
+/** @return Size in bytes of a tightly packed NV12 frame. */
 size_t nv12_bytes(const gs130_image_nv12_t & frame)
 {
   return static_cast<size_t>(frame.width) * frame.height * 3 / 2;
 }
 
-/// The frame is copied out of the SDK's buffer, which the caller still owns.
+/**
+ * @brief Copy one SDK frame into a ROS image message.
+ *
+ * @param[in] frame Source frame; its pixel buffer remains owned by the caller.
+ * @param[in] encoding ROS image-encoding string.
+ * @param[in] bytes Number of source bytes to copy.
+ * @param[in] frame_id Coordinate frame assigned to the message.
+ * @param[in] stamp ROS timestamp assigned to the message.
+ * @return A complete sensor_msgs/Image message owning its copied pixel data.
+ */
 std::unique_ptr<sensor_msgs::msg::Image> make_image(
   const gs130_image_nv12_t & frame, const char * encoding, size_t bytes,
   const std::string & frame_id, const rclcpp::Time & stamp)
@@ -57,7 +76,7 @@ std::unique_ptr<sensor_msgs::msg::Image> make_image(
   return image;
 }
 
-/// The Y plane of NV12 is already the grayscale image.
+/** @brief Copy the NV12 luma plane into a mono8 ROS image. */
 std::unique_ptr<sensor_msgs::msg::Image> make_gray(
   const gs130_image_nv12_t & frame, const std::string & frame_id, const rclcpp::Time & stamp)
 {
@@ -65,13 +84,18 @@ std::unique_ptr<sensor_msgs::msg::Image> make_gray(
     frame, "mono8", static_cast<size_t>(frame.width) * frame.height, frame_id, stamp);
 }
 
+/** @brief Copy a complete tightly packed NV12 frame into a ROS image. */
 std::unique_ptr<sensor_msgs::msg::Image> make_nv12(
   const gs130_image_nv12_t & frame, const std::string & frame_id, const rclcpp::Time & stamp)
 {
   return make_image(frame, "nv12", nv12_bytes(frame), frame_id, stamp);
 }
 
-/// Shepperd's method, for a row-major 3x3 rotation matrix.
+/**
+ * @brief Convert a row-major 3x3 rotation matrix to a quaternion.
+ * @param[in] R Proper rotation matrix in row-major order.
+ * @return Quaternion representing the same rotation, computed with Shepperd's method.
+ */
 geometry_msgs::msg::Quaternion quaternion_from_R(const double R[9])
 {
   const double trace = R[0] + R[4] + R[8];
@@ -114,6 +138,7 @@ geometry_msgs::msg::Quaternion quaternion_from_R(const double R[9])
   return quaternion;
 }
 
+/** Convert a validated ROS parameter string to the SDK camera-mode enum. */
 gs130_camera_mode_t camera_mode_of(const std::string & mode)
 {
   if (mode == "raw") {
@@ -128,6 +153,7 @@ gs130_camera_mode_t camera_mode_of(const std::string & mode)
   throw std::invalid_argument("camera_mode must be raw, rect, or resize");
 }
 
+/** Convert a validated ROS parameter string to the SDK stereo-layout enum. */
 gs130_stereo_layout_t stitch_of(const std::string & stitch)
 {
   if (stitch == "none") {
@@ -151,13 +177,29 @@ gs130_stereo_layout_t stitch_of(const std::string & stitch)
 
 }  // namespace
 
+/**
+ * @brief Owns one GS130 device and publishes its camera and IMU streams.
+ *
+ * Construction declares and validates parameters, initializes the SDK, reads
+ * calibration, creates publishers, and emits static transforms. start() begins
+ * capture and installs the publishing timer. The destructor stops capture, frees
+ * any pending SDK frame buffers, and destroys the device handle.
+ *
+ * This class adds no synchronization of its own. Stream state is consumed by the
+ * single wall-timer callback created in start().
+ */
 class Gs130Node : public rclcpp::Node
 {
 public:
   Gs130Node();
   ~Gs130Node() override;
 
-  /// Begins capture.  Blocks until the IMU FSYNC handshake completes.
+  /**
+   * @brief Start SDK capture and create the publishing timer.
+   *
+   * gs130_start() launches the SDK worker threads and returns; when an IMU is
+   * present, the camera worker waits for the FSYNC handshake in the background.
+   */
   void start();
 
 private:
@@ -167,7 +209,7 @@ private:
   void load_calibration();
   void create_publishers();
 
-  /// Runs every timer period: publishes one message, whichever stream has the older sample.
+  /** Fetch at most one pending item per stream and publish the older SDK timestamp. */
   void timer_callback();
   void publish_camera();
   void publish_imu();
@@ -176,7 +218,7 @@ private:
 
   sensor_msgs::msg::CameraInfo camera_info_for(bool left_eye, const rclcpp::Time & stamp) const;
 
-  // Parameters.
+  // Validated ROS parameters and values derived from them.
   std::string device_model_;
   std::string camera_mode_;
   std::string stitch_;
@@ -195,22 +237,22 @@ private:
   bool gray_ = false;
   bool stitched_ = false;
 
-  // Device.
+  // SDK device state and calibration cached after initialization.
   gs130_device_t * device_ = nullptr;
   bool imu_present_ = false;
   bool calibrated_ = false;
   gs130_camera_intrinsics_t intrinsics_left_ = {};
   gs130_camera_intrinsics_t intrinsics_right_ = {};
-  double stereo_T_[3] = {0.0, 0.0, 0.0};         // left -> right, for the baseline in P[3]
+  double stereo_T_[3] = {0.0, 0.0, 0.0};         // Translation of the left-to-right transform; used by P[3].
   double right_R_[9] = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
-  double right_T_[3] = {0.0, 0.0, 0.0};          // right in the left frame, for tf
+  double right_T_[3] = {0.0, 0.0, 0.0};          // Right sensor pose expressed in the left-camera frame.
   double imu_R_[9] = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
-  double imu_T_[3] = {0.0, 0.0, 0.0};            // imu in the left frame, for tf
+  double imu_T_[3] = {0.0, 0.0, 0.0};            // IMU pose expressed in the left-camera frame.
 
-  /// One pending sample per stream, so the two can be compared by timestamp.
+  /** One caller-owned pending item per stream, retained until timestamp ordering selects it. */
   bool frame_ready_ = false;
   gs130_image_nv12_t frame_left_ = {};
-  gs130_image_nv12_t frame_right_ = {};          // unused when stitched
+  gs130_image_nv12_t frame_right_ = {};          // Remains empty for stitched output.
   bool packet_ready_ = false;
   gs130_imu_packet_t packet_ = {};
 
@@ -250,8 +292,8 @@ void Gs130Node::declare_parameters()
   camera_mode_ = declare_parameter<std::string>("camera_mode", "rect");
   stitch_ = declare_parameter<std::string>("stitch", "none");
 
-  // Topic names, one parameter each, defaulting to the names mipi_cam uses.  The
-  // camera_info and gray topics are derived from the image topic they belong to.
+  // Topic parameters default to the existing mipi_cam naming convention. CameraInfo
+  // and grayscale topic names are derived from their corresponding image topic.
   image_topic_ = declare_parameter<std::string>("image_topic", "image_combine");
   left_image_topic_ = declare_parameter<std::string>("left_image_topic", "image_left");
   right_image_topic_ = declare_parameter<std::string>("right_image_topic", "image_right");
@@ -288,7 +330,7 @@ void Gs130Node::declare_parameters()
 
 gs130_config_t Gs130Node::build_config() const
 {
-  // This C bridge expands GS130_CONFIG from gs130_define.h with GNU C99 syntax.
+  // Keep the GNU C preset macro in config.c; this translation unit remains C++17.
   return gs130_camera_config_from_define(
     device_model_.c_str(), camera_mode_of(camera_mode_),
     eye_width_, eye_height_, fps_, odr_, stitch_of(stitch_));
@@ -311,7 +353,8 @@ void Gs130Node::open_device()
       "gs130_init failed: " + std::to_string(static_cast<int>(error)));
   }
 
-  // Both are optional: the SDK degrades instead of failing when it finds neither.
+  // The IMU is optional in every mode. A calibration EEPROM may be absent only
+  // when RAW initialization succeeded; RESIZE and RECT require calibration.
   const char * imu_name = gs130_get_imu_name(device_);
   imu_present_ = imu_name != nullptr && imu_name[0] != '\0';
   const char * eeprom_name = gs130_get_eeprom_name(device_);
@@ -320,6 +363,7 @@ void Gs130Node::open_device()
 
 void Gs130Node::load_calibration()
 {
+  // Keep identity/zero defaults when RAW mode initialized without an EEPROM.
   if (!calibrated_) {
     return;
   }
@@ -356,7 +400,7 @@ void Gs130Node::create_publishers()
     }
   }
 
-  // Calibration is what makes camera_info possible at all.
+  // CameraInfo and sensor-frame transforms are published only when calibration exists.
   if (calibrated_) {
     const std::string left_info_topic =
       stitched_ ? image_topic_ + "/left/camera_info" : left_image_topic_ + "/camera_info";
@@ -397,7 +441,7 @@ void Gs130Node::publish_transforms()
   right.transform.rotation = quaternion_from_R(right_R_);
   transforms.push_back(right);
 
-  // Without an IMU there is no imu frame, so nothing IMU-shaped is broadcast.
+  // Do not advertise an IMU child frame when no IMU was detected.
   if (imu_present_) {
     geometry_msgs::msg::TransformStamped imu;
     imu.header.stamp = stamp;
@@ -428,12 +472,11 @@ sensor_msgs::msg::CameraInfo Gs130Node::camera_info_for(
   for (size_t i = 0; i < 9; ++i) {
     info.k[i] = intrinsics.K[i];
   }
-  // d is the one camera matrix here that ROS 2 declares as a std::vector rather
-  // than a std::array, so it starts empty and has to be given its length before
-  // it can be indexed.  Indexing it first writes out of bounds.
+  // CameraInfo::d is a variable-length vector; copy all eight SDK coefficients.
   info.d.assign(intrinsics.dist_coeffs, intrinsics.dist_coeffs + 8);
 
-  // The pair is already rectified, so R is identity and the baseline rides in P.
+  // No additional ROS-side rectification rotation is applied. P carries the
+  // calibrated stereo translation; K and D retain the SDK mode's intrinsics.
   info.r = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
   const double baseline_x = left_eye ? 0.0 : intrinsics.fx * stereo_T_[0] + intrinsics.cx * stereo_T_[2];
   info.p = {
@@ -445,6 +488,7 @@ sensor_msgs::msg::CameraInfo Gs130Node::camera_info_for(
 
 void Gs130Node::release_frames()
 {
+  // SDK frame getters transfer malloc()-allocated buffers to the caller.
   free(frame_left_.data);
   free(frame_right_.data);
   frame_left_ = gs130_image_nv12_t{};
@@ -453,6 +497,8 @@ void Gs130Node::release_frames()
 
 void Gs130Node::publish_camera()
 {
+  // ROS messages use publication time. The SDK hardware timestamp is retained only
+  // for cross-stream ordering in timer_callback().
   const rclcpp::Time stamp = now();
 
   if (calibrated_) {
@@ -480,6 +526,8 @@ void Gs130Node::publish_camera()
 void Gs130Node::publish_imu()
 {
   sensor_msgs::msg::Imu message;
+  // Match camera-message semantics: stamp at publication, use packet timestamp only
+  // to preserve device sampling order across the two streams.
   message.header.stamp = now();
   message.header.frame_id = imu_frame_id_;
 

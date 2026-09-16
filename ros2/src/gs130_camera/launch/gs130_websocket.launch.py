@@ -1,4 +1,9 @@
-"""Start the camera and show it on the web page.
+# This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
+# Copyright (c) 2026 D-Robotics.
+# SPDX-License-Identifier: MIT
+# See the LICENSE file in the project root for the full license text.
+
+"""Launch the GS130 camera and expose its image stream to the browser viewer.
 
     ros2 launch gs130_camera gs130_websocket.launch.py
     ros2 launch gs130_camera gs130_websocket.launch.py stitch:=top_bottom
@@ -40,7 +45,7 @@ JPEG_QUALITY = 80.0
 
 
 def _encode(sub_topic, pub_topic, name, channel):
-    """One hobot_codec turning nv12 into jpeg.
+    """Create one hobot_codec node that converts an NV12 topic to JPEG.
 
     in_mode is stated as ros because the TROS launch file for this node
     overrides the node's own default with shared_mem, which would have it wait
@@ -71,7 +76,7 @@ def _encode(sub_topic, pub_topic, name, channel):
 
 
 def _websocket(image_topic, channel):
-    """A websocket on its own channel, through the package's launch file.
+    """Include one websocket channel and its nginx-backed browser page.
 
     That file is what starts nginx, and it skips the start when nginx is
     already up, so including it is also how the page gets served.
@@ -96,7 +101,7 @@ def _websocket(image_topic, channel):
 
 
 def _second_websocket(image_topic, channel):
-    """The other eye's channel, as a plain node.
+    """Create the named websocket node used for the second, unstitched eye.
 
     websocket.launch.py fixes no node name, so including it a second time
     would leave two nodes both called websocket.  This one is named.  nginx is
@@ -122,7 +127,7 @@ def _second_websocket(image_topic, channel):
 
 
 def _web(context):
-    """Build the web half once stitch is known.
+    """Create one or two encoder/websocket paths after stitch resolves.
 
     Which topics exist is a property of the resolved stitch value, and the
     number of encoders and websockets follows from it, so none of this can be
@@ -146,6 +151,7 @@ def _web(context):
 
 
 def generate_launch_description():
+    """Return the camera plus deferred browser-streaming launch description."""
     camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(

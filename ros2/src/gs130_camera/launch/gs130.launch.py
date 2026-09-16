@@ -1,10 +1,16 @@
-"""Start the GS130 stereo camera node.
+# This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
+# Copyright (c) 2026 D-Robotics.
+# SPDX-License-Identifier: MIT
+# See the LICENSE file in the project root for the full license text.
+
+"""Launch the GS130 stereo camera and optional IMU ROS 2 node.
 
     ros2 launch gs130_camera gs130.launch.py
     ros2 launch gs130_camera gs130.launch.py stitch:=top_bottom publish_gray:=true
 
-Every launch argument is passed straight through to the node as a parameter of
-the same name, so the list below is the only place argument defaults live.
+Each launch argument is passed to the node as a parameter with the same name.
+ARGUMENTS is therefore the authoritative launch-level list of defaults and types;
+the node independently declares matching defaults for direct execution.
 """
 
 from launch import LaunchDescription
@@ -14,9 +20,10 @@ from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
 
 
-# name, default, type, description.  A launch argument is always a string, and the
-# type is what tells launch_ros to hand the node an integer or a boolean instead.
-# The order matches declare_parameters() in src/gs130_node.cpp.
+# Tuple fields: name, default string, target parameter type, and user-facing
+# description. Launch arguments begin as strings; ParameterValue performs the
+# explicit conversion before the parameter reaches the node. The order mirrors
+# declare_parameters() in src/gs130_node.cpp.
 ARGUMENTS = (
     ("device", "GS130WI", str, "Camera model (GS130WI or GS130W)"),
     ("camera_mode", "rect", str, "Camera mode (raw, rect, or resize)"),
@@ -49,13 +56,14 @@ ARGUMENTS = (
 
 
 def generate_launch_description():
+    """Declare all node parameters and return the camera launch description."""
     arguments = [
         DeclareLaunchArgument(name, default_value=default, description=description)
         for name, default, _, description in ARGUMENTS
     ]
 
-    # Without value_type every one of these would reach the node as a string, and
-    # declaring "640" as an integer parameter is not something the node can do.
+    # Preserve integer and boolean parameter types instead of forwarding every
+    # command-line launch argument as a string.
     parameters = {
         name: ParameterValue(LaunchConfiguration(name), value_type=value_type)
         for name, _, value_type, _ in ARGUMENTS

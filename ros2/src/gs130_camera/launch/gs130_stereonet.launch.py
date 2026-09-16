@@ -1,4 +1,9 @@
-"""Start the camera, the stereo depth model, and the depth view on the web page.
+# This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
+# Copyright (c) 2026 D-Robotics.
+# SPDX-License-Identifier: MIT
+# See the LICENSE file in the project root for the full license text.
+
+"""Launch the GS130 camera, StereoNet depth inference, and browser visualization.
 
     ros2 launch gs130_camera gs130_stereonet.launch.py
     ros2 launch gs130_camera gs130_stereonet.launch.py render_type:=distance
@@ -54,7 +59,7 @@ ARGUMENTS = (
 
 
 def _stereonet(context):
-    """Point the model at the camera's topics, which are only known by now."""
+    """Create StereoNet and visualization actions after camera arguments resolve."""
     image_topic = LaunchConfiguration("image_topic").perform(context)
 
     model = IncludeLaunchDescription(
@@ -105,6 +110,7 @@ def _stereonet(context):
 
 
 def generate_launch_description():
+    """Return the camera, StereoNet, and web-visualization launch description."""
     arguments = [
         DeclareLaunchArgument(name, default_value=default, description=description)
         for name, default, description in ARGUMENTS
