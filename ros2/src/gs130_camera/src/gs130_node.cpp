@@ -257,8 +257,8 @@ void Gs130Node::declare_parameters()
   right_image_topic_ = declare_parameter<std::string>("right_image_topic", "image_right");
   imu_topic_ = declare_parameter<std::string>("imu_topic", "/imu_data");
 
-  const int64_t output_width = declare_parameter<int64_t>("output_width", 640);
-  const int64_t output_height = declare_parameter<int64_t>("output_height", 350);
+  const int64_t output_width = declare_parameter<int64_t>("output_width", 544);
+  const int64_t output_height = declare_parameter<int64_t>("output_height", 448);
   const int64_t fps = declare_parameter<int64_t>("fps", 30);
   const int64_t odr = declare_parameter<int64_t>("odr", 200);
   timer_period_ms_ = declare_parameter<int64_t>("timer_period_ms", 1);
