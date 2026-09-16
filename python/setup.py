@@ -15,17 +15,26 @@ HERE = Path(__file__).resolve().parent
 VERSION_FILE = HERE.parent / "VERSION"
 README_FILE = HERE / "README.md"
 
+DESCRIPTION = "Python interface for the GS130 stereo camera and IMU"
+
 if not VERSION_FILE.is_file():
     raise RuntimeError(
         "%s is missing; build this package from the repository checkout, "
         "which owns the version" % VERSION_FILE
     )
 
+# README.md is the package documentation and is read whenever it is there; the
+# wheel keeps a usable long description without it, so writing that file and
+# building this package do not have to happen in any particular order.
+LONG_DESCRIPTION = (
+    README_FILE.read_text(encoding="utf-8") if README_FILE.is_file() else DESCRIPTION
+)
+
 setup(
     name="gs130-camera",
     version=VERSION_FILE.read_text(encoding="utf-8").strip(),
-    description="Python interface for the GS130 stereo camera and IMU",
-    long_description=README_FILE.read_text(encoding="utf-8"),
+    description=DESCRIPTION,
+    long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
     author="D-Robotics",
     license="MIT",
