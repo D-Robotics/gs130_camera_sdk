@@ -2,12 +2,12 @@
 
 Typical use::
 
-    import gs130
+    import gs130_camera
 
-    config = gs130.preset(
-        "GS130WI", gs130.CameraMode.RECT, 544, 448, 30, 200
+    config = gs130_camera.preset(
+        "GS130WI", gs130_camera.CameraMode.RECT, 544, 448, 30, 200
     )
-    with gs130.Device(config) as dev:
+    with gs130_camera.Device(config) as dev:
         dev.start()
         frame = dev.read_image()
 
@@ -45,7 +45,7 @@ def package_version():
     metadata rather than from any file in the source tree.
     """
     try:
-        return importlib.metadata.version("gs130")
+        return importlib.metadata.version("gs130-camera")
     except importlib.metadata.PackageNotFoundError:
         return None
 

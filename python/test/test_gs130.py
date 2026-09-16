@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2  # noqa: E402 - needs the path above
-import gs130  # noqa: E402 - needs the path above
+import gs130_camera  # noqa: E402 - needs the path above
 
 
 SEPARATOR = "=" * 72
@@ -40,9 +40,9 @@ def section(title):
 
 
 MODES = {
-    "raw": gs130.CameraMode.RAW,
-    "resize": gs130.CameraMode.RESIZE,
-    "rect": gs130.CameraMode.RECT,
+    "raw": gs130_camera.CameraMode.RAW,
+    "resize": gs130_camera.CameraMode.RESIZE,
+    "rect": gs130_camera.CameraMode.RECT,
 }
 
 
@@ -176,8 +176,8 @@ def report_calibration(device):
     Note that the IMU intrinsics come out of the EEPROM too, so they are
     available even on a unit with no IMU fitted.
     """
-    left = device.camera_intrinsics(gs130.CameraIndex.LEFT)
-    right = device.camera_intrinsics(gs130.CameraIndex.RIGHT)
+    left = device.camera_intrinsics(gs130_camera.CameraIndex.LEFT)
+    right = device.camera_intrinsics(gs130_camera.CameraIndex.RIGHT)
     imu = device.imu_intrinsics()
 
     print("left intrinsics:\n", left.K)
@@ -200,8 +200,8 @@ def report_calibration(device):
 
 def report_extrinsics(device):
     """Every device pose relative to every other one, both ways."""
-    for source in gs130.ReferenceFrame:
-        for target in gs130.ReferenceFrame:
+    for source in gs130_camera.ReferenceFrame:
+        for target in gs130_camera.ReferenceFrame:
             print("%s -> %s" % (source.name, target.name))
             print("  R =")
             print(device.relative_R(source, target))
@@ -285,12 +285,12 @@ def main(argv=None):
     print("size: %d x %d" % (width, height))
     print("fps:", fps)
     print("imu odr:", odr)
-    print("python package:", gs130.__version__)
-    print("libgs130:", gs130.library_version(), "(%s)" % gs130.library_platform())
+    print("python package:", gs130_camera.__version__)
+    print("libgs130:", gs130_camera.library_version(), "(%s)" % gs130_camera.library_platform())
 
-    config = gs130.preset(device_name, mode, width, height, fps, odr)
+    config = gs130_camera.preset(device_name, mode, width, height, fps, odr)
 
-    with gs130.Device(config) as dev:
+    with gs130_camera.Device(config) as dev:
         section("Device")
         print("stitched:", dev.stitched)
         print("imu name:", dev.imu_name)
@@ -311,7 +311,7 @@ def main(argv=None):
         section("Calibration")
         try:
             calibration = report_calibration(dev)
-        except gs130.GS130Error as error:
+        except gs130_camera.GS130Error as error:
             print("no calibration available: %s" % error)
 
         section("Extrinsics")
@@ -320,7 +320,7 @@ def main(argv=None):
         else:
             report_extrinsics(dev)
             dev.convert_calibration(
-                gs130.ReferenceFrame.IMU,
+                gs130_camera.ReferenceFrame.IMU,
                 calibration.imu_R,
                 calibration.imu_T,
             )

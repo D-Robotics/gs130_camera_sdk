@@ -6,7 +6,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 PYTHON="${PYTHON:-python3}"
 
 clean() {
-    rm -rf build dist gs130.egg-info
+    rm -rf build dist gs130_camera.egg-info
 }
 
 case "${1:-wheel}" in
@@ -24,7 +24,7 @@ case "${1:-wheel}" in
             . \
             --wheel-dir dist
         printf '\nBuilt wheel:\n'
-        ls -lh dist/gs130-*.whl
+        ls -lh dist/gs130_camera-*.whl
         ;;
     *)
         printf 'Usage: %s [clean|wheel]\n' "$0" >&2

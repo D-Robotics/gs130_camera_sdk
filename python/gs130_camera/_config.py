@@ -120,7 +120,7 @@ def config():
     """Return an empty configuration dict.
 
     Every key of ``gs130_config_t`` is present with an unset value; fill in the
-    fields you need and hand the dict to :class:`gs130.Device`.  Unset values
+    fields you need and hand the dict to :class:`gs130_camera.Device`.  Unset values
     are rejected at that point, so nothing is silently left at zero.
     """
     return {

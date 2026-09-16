@@ -1,4 +1,4 @@
-"""Build metadata for the gs130 Python package.
+"""Build metadata for the gs130_camera Python package.
 
 The package and libgs130 share the repository-level VERSION file because their
 ctypes structures must stay in lockstep.  This stays a setup.py rather than a
@@ -22,7 +22,7 @@ if not VERSION_FILE.is_file():
     )
 
 setup(
-    name="gs130",
+    name="gs130-camera",
     version=VERSION_FILE.read_text(encoding="utf-8").strip(),
     description="Python interface for the GS130 stereo camera and IMU",
     long_description=README_FILE.read_text(encoding="utf-8"),
@@ -34,8 +34,8 @@ setup(
         "Source": "https://github.com/D-Robotics/gs130_camera_sdk",
         "Issues": "https://github.com/D-Robotics/gs130_camera_sdk/issues",
     },
-    packages=["gs130"],
-    package_data={"gs130": ["__init__.pyi", "py.typed"]},
+    packages=["gs130_camera"],
+    package_data={"gs130_camera": ["__init__.pyi", "py.typed"]},
     python_requires=">=3.10",
     install_requires=["numpy>=1.20"],
     # The hardware test prints frames and writes PNGs, so it needs OpenCV.

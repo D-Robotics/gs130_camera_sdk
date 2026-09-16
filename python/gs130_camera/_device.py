@@ -141,11 +141,11 @@ def _calibration(raw):
 class Device:
     """An initialized GS130 camera.
 
-    Build it from a configuration dict (:func:`gs130.config` returns an empty
-    one, :func:`gs130.preset` a filled one), then call :meth:`start` before
+    Build it from a configuration dict (:func:`gs130_camera.config` returns an empty
+    one, :func:`gs130_camera.preset` a filled one), then call :meth:`start` before
     reading.  Use it as a context manager so the camera is always released::
 
-        with gs130.Device(config) as dev:
+        with gs130_camera.Device(config) as dev:
             dev.start()
             frame = dev.read_image()
     """
@@ -180,7 +180,7 @@ class Device:
     def _device(self):
         """Return the native handle, rejecting use after :meth:`close`."""
         if self._dev is None:
-            raise RuntimeError("gs130.Device is closed")
+            raise RuntimeError("gs130_camera.Device is closed")
         return self._dev
 
     def start(self):
@@ -225,7 +225,7 @@ class Device:
             if exc_type is None:
                 raise
             warnings.warn(
-                "gs130.Device.close() failed while another exception was "
+                "gs130_camera.Device.close() failed while another exception was "
                 "already propagating",
                 RuntimeWarning,
                 stacklevel=2,
@@ -239,7 +239,7 @@ class Device:
         if getattr(self, "_dev", None) is not None:
             try:
                 warnings.warn(
-                    "unclosed gs130.Device; use close() or a with block",
+                    "unclosed gs130_camera.Device; use close() or a with block",
                     ResourceWarning,
                     stacklevel=2,
                 )

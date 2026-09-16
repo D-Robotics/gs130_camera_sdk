@@ -34,18 +34,18 @@ The wheel is written to `python/dist/`.
 ## Use
 
 ```python
-import gs130
+import gs130_camera
 
-configuration = gs130.preset(
+configuration = gs130_camera.preset(
     "GS130WI",
-    gs130.CameraMode.RECT,
+    gs130_camera.CameraMode.RECT,
     544,
     448,
     30,
     200,
 )
 
-with gs130.Device(configuration) as device:
+with gs130_camera.Device(configuration) as device:
     device.start()
     while device.available_camera() == 0:
         pass

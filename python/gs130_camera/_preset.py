@@ -99,7 +99,7 @@ def preset(device, mode, width, height, fps, odr):
     ``mode`` is a :class:`CameraMode`, ``width`` / ``height`` the output size,
     ``fps`` the camera frame rate and ``odr`` the IMU output data rate in Hz.
     The result is an ordinary dict: adjust it before handing it to
-    :class:`gs130.Device`.
+    :class:`gs130_camera.Device`.
 
     The platform is the one ``libgs130`` was built for, as it is for the
     ``GS130_CONFIG`` macro, so there is nothing to pass in and no way to ask
