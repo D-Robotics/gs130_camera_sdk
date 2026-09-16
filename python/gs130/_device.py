@@ -228,7 +228,7 @@ class Device:
                 "gs130.Device.close() failed while another exception was "
                 "already propagating",
                 RuntimeWarning,
-                source=self,
+                stacklevel=2,
             )
         return False
 
@@ -241,7 +241,7 @@ class Device:
                 warnings.warn(
                     "unclosed gs130.Device; use close() or a with block",
                     ResourceWarning,
-                    source=self,
+                    stacklevel=2,
                 )
                 self.close()
             except Exception:
