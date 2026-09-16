@@ -162,6 +162,8 @@ class Device:
         )
         self._lib = _abi.load()
         self._dev = self._lib.gs130_create()
+        if not self._dev:
+            raise MemoryError("gs130_create() returned NULL")
 
         try:
             _check(
@@ -175,12 +177,15 @@ class Device:
             self._dev = None
             raise
 
-    def start(self):
-        """Begin capture and return ``self``.
+    def _device(self):
+        """Return the native handle, rejecting use after :meth:`close`."""
+        if self._dev is None:
+            raise RuntimeError("gs130.Device is closed")
+        return self._dev
 
-        Blocks until the IMU sync handshake completes when an IMU is present.
-        """
-        _check(self._lib.gs130_start(self._dev), "gs130_start")
+    def start(self):
+        """Begin capture and return ``self``."""
+        _check(self._lib.gs130_start(self._device()), "gs130_start")
         return self
 
     def stop(self):
@@ -189,7 +194,7 @@ class Device:
         Does nothing when capture is not running; :meth:`start` may be called
         again.
         """
-        self._lib.gs130_stop(self._dev)
+        self._lib.gs130_stop(self._device())
 
     def close(self):
         """Stop capture and release every device resource.
@@ -257,22 +262,22 @@ class Device:
     @property
     def imu_name(self):
         """Detected IMU model, or ``None``."""
-        return _text(self._lib.gs130_get_imu_name(self._dev))
+        return _text(self._lib.gs130_get_imu_name(self._device()))
 
     @property
     def imu_info(self):
         """Detected IMU details, including the bandwidth table, or ``None``."""
-        return _text(self._lib.gs130_get_imu_info(self._dev))
+        return _text(self._lib.gs130_get_imu_info(self._device()))
 
     @property
     def eeprom_name(self):
         """Detected EEPROM header, or ``None``."""
-        return _text(self._lib.gs130_get_eeprom_name(self._dev))
+        return _text(self._lib.gs130_get_eeprom_name(self._device()))
 
     @property
     def eeprom_info(self):
         """Detected EEPROM details, or ``None``."""
-        return _text(self._lib.gs130_get_eeprom_info(self._dev))
+        return _text(self._lib.gs130_get_eeprom_info(self._device()))
 
     # -- queue depth -------------------------------------------------------
 
@@ -281,14 +286,14 @@ class Device:
 
         ``0`` while capture is not running.
         """
-        return self._lib.gs130_available_camera(self._dev)
+        return self._lib.gs130_available_camera(self._device())
 
     def available_imu(self):
         """How many IMU packets are queued right now.
 
         ``0`` while capture is not running, or when no IMU was detected.
         """
-        return self._lib.gs130_available_imu(self._dev)
+        return self._lib.gs130_available_imu(self._device())
 
     # -- reads -------------------------------------------------------------
 
@@ -298,11 +303,17 @@ class Device:
         Returns ``{"stitched": Image}`` when a stereo layout is configured and
         ``{"left": Image, "right": Image}`` otherwise.  Each :class:`Image`
         owns its buffer and frees it when dropped.
+
+        Any non-OK code becomes ``None``, so a hardware fault looks the same as
+        an empty queue here; this is the loop-friendly contract, and
+        :meth:`available_camera` tells the two apart by reporting ``0`` while
+        the stream is not running.
         """
+        device = self._device()
         if self._stitched:
             raw = _abi.gs130_image_nv12_t()
             code = self._lib.gs130_get_stereo_nv12_frame(
-                self._dev, ctypes.byref(raw)
+                device, ctypes.byref(raw)
             )
             if code != ErrorCode.OK:
                 return None
@@ -311,7 +322,7 @@ class Device:
         left = _abi.gs130_image_nv12_t()
         right = _abi.gs130_image_nv12_t()
         code = self._lib.gs130_get_nv12_frame(
-            self._dev, ctypes.byref(left), ctypes.byref(right)
+            device, ctypes.byref(left), ctypes.byref(right)
         )
         if code != ErrorCode.OK:
             return None
@@ -325,7 +336,9 @@ class Device:
         case needs to be told apart from an idle queue.
         """
         raw = _abi.gs130_imu_packet_t()
-        code = self._lib.gs130_get_imu_packet(self._dev, ctypes.byref(raw))
+        code = self._lib.gs130_get_imu_packet(
+            self._device(), ctypes.byref(raw)
+        )
         if code != ErrorCode.OK:
             return None
         return _imu_packet(raw)
@@ -336,7 +349,7 @@ class Device:
         """The full stereo and IMU calibration loaded from the EEPROM."""
         raw = _abi.gs130_calibration_t()
         _check(
-            self._lib.gs130_get_calibration(self._dev, ctypes.byref(raw)),
+            self._lib.gs130_get_calibration(self._device(), ctypes.byref(raw)),
             "gs130_get_calibration",
         )
         return _calibration(raw)
@@ -346,7 +359,7 @@ class Device:
         raw = _abi.gs130_camera_intrinsics_t()
         _check(
             self._lib.gs130_get_camera_intrinsics(
-                self._dev, camera, ctypes.byref(raw)
+                self._device(), camera, ctypes.byref(raw)
             ),
             "gs130_get_camera_intrinsics",
         )
@@ -356,7 +369,7 @@ class Device:
         """IMU intrinsics: misalignment, scale, bias, noise, random walk."""
         raw = _abi.gs130_imu_intrinsics_t()
         _check(
-            self._lib.gs130_get_imu_intrinsics(self._dev, ctypes.byref(raw)),
+            self._lib.gs130_get_imu_intrinsics(self._device(), ctypes.byref(raw)),
             "gs130_get_imu_intrinsics",
         )
         return _imu_intrinsics(raw)
@@ -366,7 +379,7 @@ class Device:
         values = (ctypes.c_double * 9)()
         _check(
             self._lib.gs130_get_relative_R(
-                self._dev, from_frame, to_frame, values
+                self._device(), from_frame, to_frame, values
             ),
             "gs130_get_relative_R",
         )
@@ -377,7 +390,7 @@ class Device:
         values = (ctypes.c_double * 3)()
         _check(
             self._lib.gs130_get_relative_T(
-                self._dev, from_frame, to_frame, values
+                self._device(), from_frame, to_frame, values
             ),
             "gs130_get_relative_T",
         )
@@ -406,7 +419,7 @@ class Device:
             )
         _check(
             self._lib.gs130_convert_calibration(
-                self._dev,
+                self._device(),
                 ref_frame,
                 (ctypes.c_double * 9)(*rotation),
                 (ctypes.c_double * 3)(*translation),
