@@ -1,4 +1,4 @@
-# GS130 Stereo Camera SDK
+# GS130 Stereo Camera SDK —— ROS 接口
 
 **简体中文** | [English](README.md)
 

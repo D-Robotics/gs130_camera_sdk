@@ -1,4 +1,4 @@
-# GS130 Stereo Camera SDK
+# GS130 Stereo Camera SDK — ROS Interface
 
 [简体中文](README.zh-CN.md) | **English**
 
