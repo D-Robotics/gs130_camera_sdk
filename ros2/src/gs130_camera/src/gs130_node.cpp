@@ -428,9 +428,10 @@ sensor_msgs::msg::CameraInfo Gs130Node::camera_info_for(
   for (size_t i = 0; i < 9; ++i) {
     info.k[i] = intrinsics.K[i];
   }
-  for (size_t i = 0; i < 8; ++i) {
-    info.d[i] = intrinsics.dist_coeffs[i];
-  }
+  // d is the one camera matrix here that ROS 2 declares as a std::vector rather
+  // than a std::array, so it starts empty and has to be given its length before
+  // it can be indexed.  Indexing it first writes out of bounds.
+  info.d.assign(intrinsics.dist_coeffs, intrinsics.dist_coeffs + 8);
 
   // The pair is already rectified, so R is identity and the baseline rides in P.
   info.r = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
