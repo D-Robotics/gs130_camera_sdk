@@ -1,4 +1,4 @@
-# GS130 Stereo Camera SDK — Python Interface
+# GS130 Camera SDK — Python Interface
 
 [简体中文](README.zh-CN.md) | **English**
 

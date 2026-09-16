@@ -1,4 +1,4 @@
-# GS130 Stereo Camera SDK
+# GS130 Camera SDK
 
 **简体中文** | [English](README.md)
 
