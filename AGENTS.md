@@ -1,80 +1,111 @@
 # AGENTS.md
 
-Working notes for agents in this repository.
+Operational notes. Terse by design. Everything here is verified against the tree.
 
-## What this is
+## Map
 
-The GS130 stereo camera and IMU SDK: one native library, three layers on top of it.
-
-| Layer | Directory | Built with |
+| Path | Role | Build |
 | --- | --- | --- |
-| Core | `core/` | C11 and C++17, a GNU Makefile |
-| Python wrapper | `python/` | Python 3.10+, `ctypes` over `libgs130` |
-| ROS 2 wrapper | `ros2/` | C++17, `ament_cmake` |
+| `core/` | `libgs130` (C11+C++17), CLI, samples, tools, `.deb` | GNU Make |
+| `python/` | `gs130_camera` wrapper (ctypes) | setuptools, `build-wheel.sh` |
+| `ros2/src/gs130_camera/` | ROS 2 node `gs130_node` | ament_cmake / colcon |
+| `core/include/gs130.h` | public C API — source of truth for every layer | — |
+| `core/include/gs130_define.h` | `GS130_CONFIG*` presets, GNU C only | — |
+| `VERSION` | version shared by core + python | — |
 
-`VERSION` at the root is shared by Core and the Python wrapper; the ROS 2 package declares its own version in `package.xml`.
+Dependency order: `core` → `python`, `ros2`. Install core first.
 
-## Ground rules
+## Build
 
-- **Keep the layers apart.** `core/` must not assume the shape of either wrapper, and the wrappers must not re-implement what `libgs130` already does. A behaviour belongs in Core unless it is genuinely language- or middleware-specific.
-- **When the task is comments or documentation, behaviour must not move.** Strip the comments and whitespace and compare the remaining tokens against the previous revision; that check is what makes "comment-only" a claim rather than a hope.
-- **Never claim support the code does not have.** `core/src/devices/pipeline/` holds the implemented backends, and `GS130_CONFIG_PLATFORM` prints to stderr and exits for anything else. Today that means RDK X5; RDK S100 and RDK S600 are described as in development.
-- **This is a developer preview (alpha).** Say so in user-facing documents instead of presenting the interfaces as settled.
-- **Leave other people's work alone.** Check `git status` first: uncommitted changes you did not make are not yours to edit, commit, reformat, or `chown`.
-- **Fetch before you push.** `develop` is shared and has diverged before. Compare against `origin/develop` rather than assuming a fast-forward.
-
-## Build and verify
-
-Core links the Horizon multimedia libraries (`libvpf`, `libhbmem`, `libcam` in `/usr/hobot/lib`), OpenCV 4 and `libtbb.so.2`, so it builds on the board, not on a plain host.
+Core needs `/usr/hobot/lib/lib{vpf,hbmem,cam}.so`, OpenCV 4 headers, `libtbb.so.2`, GCC with C11/C++17. Board only, no host build.
 
 ```bash
 cd core
-make -j$(nproc)          # library, samples, tools and the .deb, for the default platform (RDKX5)
-make lib                 # library only
-make RDKX5 <target>      # a platform name is only honoured as the first goal
+make -j$(nproc)          # all: lib + samples + tools + deb (PLATFORM=RDKX5 default)
+make lib                 # lib only -> out/<PLATFORM>/libgs130.{a,so,so.<major>,so.<ver>}
+make samples tools deb   # individually
+make fifo|i2c|rectify|tracker|eeprom|imu|pipeline   # partial object rebuilds
+make <PLATFORM> <target> # platform name valid ONLY as the first goal
+make clean
 ```
 
-`make` asks once for confirmation before compiling; a stdin that is not a terminal skips the question.
+`make` prompts `Build? [Y/n]` once, tty only; non-tty skips it; `GS130_NO_CONFIRM=1` skips it. Output: `build/<PLATFORM>/`, `out/<PLATFORM>/`, deb `out/gs130-camera_<ver>+<PLATFORM>_<arch>.deb`.
 
 ```bash
-cd python && ./build-wheel.sh                            # wheel into python/dist/
-cd ros2 && colcon build --packages-select gs130_camera   # needs libgs130 installed
+dpkg -s gs130-camera                             # installed?
+sudo dpkg -i core/out/gs130-camera_*.deb         # -> /usr/include/{gs130.h,gs130_define.h}
+                                                 #    /usr/lib/<multiarch>/libgs130.{a,so*}
+                                                 #    /usr/bin/gs130*
 ```
-
-The wheel does not bundle the native library. `python/setup.py` uses `python/README.md` as the long description whenever that file exists, and the binding resolves `libgs130` through `GS130_LIB`, then `ldconfig`, then `libgs130.so`.
 
 ```bash
-dpkg -s gs130-camera     # is the SDK installed? (the .deb is gs130-camera)
+cd python && ./build-wheel.sh                    # -> python/dist/gs130_camera-<ver>-py3-none-any.whl
+python3 -m pip install dist/gs130_camera-*.whl
+./build-wheel.sh clean
 ```
 
-## Conventions
+Wheel excludes the native library. Runtime lookup: `$GS130_LIB` → `ldconfig` → `libgs130.so`. Package/library version mismatch: older library refused, newer warns.
 
-**Sources** open with a header naming the project URL, `Copyright (c) 2026 D-Robotics.`, `SPDX-License-Identifier: MIT` and a pointer to `LICENSE`. The API is documented in Doxygen (`@file`, `@brief`, `@param`, `@retval`, `@note`, `@warning`), and the comments carry the contracts that the signatures cannot: units, ownership, thread safety and coordinate frames.
-
-**Documents** are bilingual and cross-linked at the top: `README.md` in English, `README.zh-CN.md` in Chinese. Neither has badges, both use one emoji heading per section, and the two are expected to stay in step — a change to one belongs in the other.
-
-**Commit messages** are English and imperative, with a short body that says what changed and why.
-
-## Checks worth running
-
-Cheap and mechanical; these catch the mistakes this repository actually produces.
-
-- **Comment-only work**: strip `//`, `/* */` and string literals with a small lexer, collapse whitespace, compare the token streams.
-- **`CMakeLists.txt`**: compare the non-`#` lines.
-- **`launch/*.launch.py`**: `ast.parse` both revisions and compare the dumps with docstrings removed.
-- **`package.xml`**: compare the parsed element structure — only `<description>` should differ for a documentation change.
-- **README tables that mirror code**: pull the defaults out of `declare_parameter(...)` (ROS 2) or `_FIELDS` (Python) and check them against the tables.
-- **Relative links**: confirm every path a document points at exists from that document's directory.
-
-## What lives where
-
-```
-core/include/gs130.h        the public C API; the reference the wrappers mirror
-core/include/gs130_define.h platform presets (GS130_CONFIG*), GNU C only
-core/samples/               the gs130 front end and the sample programs
-core/src/tools/             the three detect tools
-python/gs130_camera/        the wrapper, with __init__.pyi and py.typed
-ros2/src/gs130_camera/      the ROS 2 node, launch files and package metadata
+```bash
+cd ros2
+source /opt/ros/humble/setup.bash                # or jazzy
+colcon build --packages-select gs130_camera
+source install/setup.bash
 ```
 
-Build output is ignored by `.gitignore` (`core/build`, `core/out`, `python/build`, `python/dist`, `python/*.egg-info`, `__pycache__`, `ros2/build|install|log`) and must never be committed.
+ROS link: `find_library(gs130)`; header: `core/include` via `../../../`, else `$GS130_ROOT/include`. Override: `--cmake-args -DGS130_LIBRARY= -DGS130_INCLUDE_DIR=`.
+
+## Secondary development
+
+| Change | Edit |
+| --- | --- |
+| New platform backend | add `core/src/devices/pipeline/<PLATFORM>/`; Makefile discovers it (`PLATFORMS := wildcard src/devices/pipeline/*/`); add `GS130_CONFIG_<PLATFORM>_<DEVICE>` to `core/include/gs130_define.h` |
+| Pipeline behaviour | `core/src/devices/pipeline/pipeline.{hpp,cpp}`, `pipeline/<PLATFORM>/` |
+| Calibration / rectification | `core/src/base/rectify/`, `core/src/base/tracker/` |
+| I2C, FIFO primitives | `core/src/base/i2c/`, `core/src/base/fifo/` |
+| EEPROM models | `core/src/devices/eeprom/` (+ `GS130_EEPROM_REGISTER_MODEL`) |
+| IMU sensor | `core/src/devices/imu/` |
+| Public C API | `core/include/gs130.h` + `core/src/gs130.cpp` |
+| CLI subcommand | `core/samples/gs130` (bash dispatcher) + program in `core/samples/` or `core/src/tools/` |
+| Python surface | `python/gs130_camera/{_device,_types,_config,_preset,_abi}.py` + `__init__.pyi` |
+| ROS 2 topics/params | `ros2/src/gs130_camera/src/gs130_node.cpp`, `launch/*.launch.py` |
+
+C skeleton: `GS130_CONFIG(device, mode, w, h, fps, odr)` → `gs130_create` → `gs130_init` → `gs130_start` → `gs130_get_nv12_frame` | `gs130_get_stereo_nv12_frame` | `gs130_get_imu_packet` → `gs130_stop` → `gs130_deinit` → `gs130_destroy`.
+Frame buffers are `malloc`-owned by the caller: `free(image.data)`. Reference implementations: `core/samples/gs130-run.c`, `gs130-rec.c`.
+
+Python skeleton: `preset()` | `config()` → `Device(cfg)` as context manager → `start()` → `read_image()` / `read_imu()` (both `None` when empty) → `close()`. Config is a nested dict; `preset()` fills it, edit before constructing `Device`.
+
+## Test
+
+```bash
+python3 test/test_gs130.py GS130WI rect 544 448 30 200 [--output-dir D] [--overwrite]
+    # run from python/; hardware test; needs cv2; prints calibration/queues, writes NV12->PNG
+    # skips absent hardware instead of failing
+
+core/out/<PLATFORM>/gs130-run GS130WI rect 544 448 30 200    # stream camera + IMU
+core/out/<PLATFORM>/gs130 detect imu -b 6                    # I2C probe
+core/out/<PLATFORM>/gs130 shell -d GS130WI                   # interactive: imu-info|eeprom-info|calib-export|run|rec
+```
+
+TROS launches (need `hobot_codec`, `websocket`, `hobot_stereonet`): `source /opt/tros/humble/setup.bash` then `ros2 launch gs130_camera gs130{,_websocket,_stereonet}.launch.py`; page at `http://<board>:8000`.
+
+## Checks before claiming done
+
+- comment/doc-only change ⇒ code token stream unchanged: strip `//`, `/* */`, string and char literals, collapse whitespace, diff against the previous revision.
+- `CMakeLists.txt` ⇒ non-`#` lines identical.
+- `launch/*.launch.py` ⇒ `ast.parse` both revisions, compare dumps with docstrings removed.
+- `package.xml` ⇒ parsed element structure identical; only `<description>` may differ for doc work.
+- README tables that mirror code ⇒ compare against `declare_parameter(...)` (ROS 2) or `python/gs130_camera/_config.py::_FIELDS`.
+- Relative links ⇒ every path resolves from that document's own directory.
+
+## Rules
+
+- Comment/doc work: zero token changes in code. Verify, do not assume.
+- Never document unsupported capability. Implemented backends = directories under `core/src/devices/pipeline/`; anything else makes `GS130_CONFIG_PLATFORM` print and `exit(1)`. Today: RDKX5 only; S100/S600 are "in development".
+- Project is a developer preview (Alpha). Label it as such in user-facing documents.
+- Do not edit, commit, reformat or `chown` files you did not change — check `git status` first.
+- `git fetch` and compare `origin/develop` before committing or pushing; the branch is shared and has diverged before.
+- `VERSION` drives core and python; the ROS 2 version lives in `package.xml` — bump both when needed.
+- `python/setup.py` uses `python/README.md` as `long_description` when that file exists.
+- Never commit build output. `.gitignore` covers: `core/{build,out}`, `python/{build,dist,*.egg-info}`, `__pycache__`, `ros2/{build,install,log}`.
+- READMEs are bilingual and cross-linked: `README.md` (English) + `README.zh-CN.md` (Chinese). One change belongs in both.
