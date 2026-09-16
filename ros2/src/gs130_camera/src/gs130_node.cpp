@@ -167,8 +167,8 @@ private:
   void load_calibration();
   void create_publishers();
 
-  /// Runs every timer period: publishes whichever stream has the older sample.
-  void tick();
+  /// Runs every timer period: publishes one message, whichever stream has the older sample.
+  void timer_callback();
   void publish_camera();
   void publish_imu();
   void publish_transforms();
@@ -500,36 +500,39 @@ void Gs130Node::publish_imu()
   imu_publisher_->publish(message);
 }
 
-void Gs130Node::tick()
+void Gs130Node::timer_callback()
 {
-  // Hold one sample per stream, publish the older one, then refill that side, so
-  // image and IMU leave in timestamp order and neither overtakes the other.
-  for (;;) {
-    if (!frame_ready_ && gs130_available_camera(device_) > 0) {
-      const gs130_err_t error = stitched_ ?
-        gs130_get_stereo_nv12_frame(device_, &frame_left_) :
-        gs130_get_nv12_frame(device_, &frame_left_, &frame_right_);
-      frame_ready_ = error == GS130_OK;
-    }
+  // One message per call, rather than one per message that happens to be ready.
+  // The SDK hands over a frame's worth of IMU samples in a single batch, and
+  // publishing the whole batch back to back makes a subscriber with a shallow
+  // queue drop its tail.  At one message per period the timer is still fast
+  // enough to carry both streams.
+  if (!frame_ready_ && gs130_available_camera(device_) > 0) {
+    const gs130_err_t error = stitched_ ?
+      gs130_get_stereo_nv12_frame(device_, &frame_left_) :
+      gs130_get_nv12_frame(device_, &frame_left_, &frame_right_);
+    frame_ready_ = error == GS130_OK;
+  }
 
-    if (!packet_ready_ && imu_present_ && gs130_available_imu(device_) > 0) {
-      packet_ready_ = gs130_get_imu_packet(device_, &packet_) == GS130_OK;
-    }
+  if (!packet_ready_ && imu_present_ && gs130_available_imu(device_) > 0) {
+    packet_ready_ = gs130_get_imu_packet(device_, &packet_) == GS130_OK;
+  }
 
-    if (!frame_ready_) {
-      return;
-    }
-    if (imu_present_ && !packet_ready_) {
-      return;  // hold the frame until there is an IMU sample to compare against
-    }
+  if (!frame_ready_) {
+    return;
+  }
+  if (imu_present_ && !packet_ready_) {
+    return;  // hold the frame until there is an IMU sample to compare against
+  }
 
-    if (!imu_present_ || frame_left_.timestamp_ns <= packet_.timestamp_ns) {
-      publish_camera();
-      frame_ready_ = false;
-    } else {
-      publish_imu();
-      packet_ready_ = false;
-    }
+  // Hold one sample per stream and publish the older one, so image and IMU leave
+  // in timestamp order and neither overtakes the other.
+  if (!imu_present_ || frame_left_.timestamp_ns <= packet_.timestamp_ns) {
+    publish_camera();
+    frame_ready_ = false;
+  } else {
+    publish_imu();
+    packet_ready_ = false;
   }
 }
 
@@ -542,7 +545,7 @@ void Gs130Node::start()
   }
 
   timer_ = create_wall_timer(
-    std::chrono::milliseconds(timer_period_ms_), [this]() {tick();});
+    std::chrono::milliseconds(timer_period_ms_), [this]() {timer_callback();});
 }
 
 Gs130Node::~Gs130Node()

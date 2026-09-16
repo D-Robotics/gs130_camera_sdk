@@ -34,7 +34,13 @@ ARGUMENTS = (
     ("output_height", "448", int, "Output height of one eye"),
     ("fps", "30", int, "Camera frames per second"),
     ("odr", "200", int, "IMU output data rate, in Hz"),
-    ("timer_period_ms", "1", int, "Period of the single publish timer, in milliseconds"),
+    (
+        "timer_period_ms",
+        "1",
+        int,
+        "Publish period in milliseconds; one message goes out per period, so this "
+        "also caps the combined stream rate and has to stay well under it",
+    ),
     ("publish_gray", "false", bool, "Also publish each image as mono8"),
     ("frame_id", "camera_link", str, "Frame of the left eye and of the stitched frame"),
     ("right_frame_id", "camera_right_link", str, "Frame of the right eye"),
