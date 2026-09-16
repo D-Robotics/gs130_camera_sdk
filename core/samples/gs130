@@ -10,7 +10,7 @@
 # internal commands, run inside `gs130 shell`, which locks the device config once:
 #   help, imu-info, eeprom-info, calib-export <dir>, run, rec, exit
 #
-# every command answers --help, and every failure prints
+# every command answers --help, and every failure reported here prints
 #   <command>: <reason>
 #   try '<command> --help'
 dir=$(dirname "$0")
@@ -149,6 +149,11 @@ usage: run
 Streams the camera and the IMU and prints the newest of each 50 times per second,
 using the device config locked by `gs130 shell`. Ctrl-C stops it.
 
+Every printed timestamp is a capture or sample time in seconds on the camera clock,
+not seconds since the command started, and the ID is the 0-based index of that frame
+or packet in the stream. The rates are averages over a short window and print as
+"--" until the window has filled.
+
 Records nothing: see 'rec --help' for that.
 EOF
 }
@@ -174,6 +179,12 @@ capped to what fits in RAM.
 output:
   <dir>/cam/000100_L.nv12, 000100_R.nv12     (or 000100.nv12 with --stitch)
   <dir>/imu.csv                              index,timestamp_ns,acc_xyz,gyro_xyz,temp,is_fsync
+
+The number in a file name is the frame's index in the range, so -c 100:110 writes
+000100 through 000109. timestamp_ns is the sample time in nanoseconds on the
+camera clock -- the same value 'run' shows in seconds -- while the [<elapsed>s] of
+the progress lines counts seconds since this recording started. is_fsync is 1 when
+the packet carries an IMU FSYNC anchor and 0 otherwise.
 EOF
 }
 
@@ -183,6 +194,11 @@ usage: imu-info
 
 Prints the detected IMU model and its details, using the device config locked
 by `gs130 shell`.
+
+  imu name: <model>     the model line, followed by the detail block on stdout
+  no IMU detected       all that is printed when the probe found no IMU
+
+A device that fails to initialize prints 'init failed' on stderr and exits 1.
 EOF
 }
 
@@ -192,6 +208,11 @@ usage: eeprom-info
 
 Prints the EEPROM calibration model and its details, using the device config
 locked by `gs130 shell`.
+
+  eeprom name: <model>  the model line, followed by the detail block on stdout
+  no EEPROM detected    all that is printed when the probe found no EEPROM
+
+A device that fails to initialize prints 'init failed' on stderr and exits 1.
 EOF
 }
 

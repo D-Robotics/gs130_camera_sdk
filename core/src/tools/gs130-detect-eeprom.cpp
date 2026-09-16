@@ -1,5 +1,19 @@
-/* gs130-detect-eeprom: scan I2C buses x addresses for a known EEPROM, printing
- * a result for every probe point (name + info on a hit). Internal bring-up tool. */
+/**
+ * @file gs130-detect-eeprom.cpp
+ * @brief Scan I2C buses x addresses for a known calibration EEPROM.
+ *
+ * Internal bring-up tool, dispatched by the @c gs130 script as
+ * @c "gs130 detect eeprom": every (bus, address) probe point prints exactly one
+ * result line (model name plus its details on a hit), so the output also shows
+ * where an unknown device answered and where nothing answered at all.
+ *
+ * Usage: gs130 detect eeprom -b <bus...> [-a <addr...>]
+ *
+ * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
+ * Copyright (c) 2026 D-Robotics.
+ * SPDX-License-Identifier: MIT
+ * See the LICENSE file in the project root for the full license text.
+ */
 #include "base/i2c/i2c.hpp"
 #include "devices/eeprom/eeprom.hpp"
 
@@ -10,6 +24,13 @@
 
 using namespace gs130;
 
+/**
+ * @brief Parse one command-line integer argument.
+ *
+ * @param[in]  s   Text to parse.
+ * @param[out] out Receives the parsed value.
+ * @return true when @p s was consumed completely.
+ */
 static bool parse_int(const char *s, int *out)
 {
     char *end = nullptr;
@@ -19,6 +40,7 @@ static bool parse_int(const char *s, int *out)
     return true;
 }
 
+// print a (possibly multi-line) string, indenting every line under the result column
 static void print_block(const char *indent, const char *text)
 {
     if(!text)return;
@@ -31,6 +53,15 @@ static void print_block(const char *indent, const char *text)
     }
 }
 
+/**
+ * @brief Probe every requested (bus, address) pair, one result line per point.
+ *
+ * @param[in] argc,argv @c -b <bus...> (required) and @c -a <addr...> (optional);
+ *                      each option takes the values that follow it until the next
+ *                      argument starting with '-'.
+ * @return 0 when the scan completed (also when no EEPROM was found), 1 on a usage
+ *         or argument error.
+ */
 int main(int argc, char **argv)
 {
     std::vector<int> buses, addrs;
@@ -48,6 +79,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: gs130 detect eeprom -b <bus...> [-a <addr...>]   (addr default: 0x50)\n");
         return 1;
     }
+    // default probe address: the calibration EEPROM address used by the SDK presets
     if(addrs.empty())addrs = {0x50};
 
     printf("EEPROM scan: buses");

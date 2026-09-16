@@ -1,6 +1,43 @@
 /**
  * @file gs130-calib-export.c
- * @brief Export script
+ * @brief Export the EEPROM calibration as Kalibr YAML
+ *
+ * usage: gs130-calib-export <dir> <device> <mode> <width> <height> <fps> <odr>
+ *
+ *   Positional arguments, all required, no flags:
+ *
+ *   <dir>     output directory, created when missing
+ *   <device>  device model: GS130WI | GS130W
+ *   <mode>    pipeline mode: raw | resize | rect (anything else means raw)
+ *   <width>   output width in pixels
+ *   <height>  output height in pixels
+ *   <fps>     camera frame rate
+ *   <odr>     IMU output data rate in Hz
+ *
+ *   Normally not called directly: 'calib-export <dir>' inside `gs130 shell`
+ *   passes the device config locked by the shell in exactly this order.
+ *
+ * output: both the YAML text on stdout and one file per document in <dir>
+ *
+ *   <dir>/camchain.yaml   camera intrinsics, plus the T_cam_imu and T_cn_cnm1
+ *                         extrinsics when an IMU is present
+ *   <dir>/imu.yaml        IMU noise and intrinsics; written only when an IMU is
+ *                         present (update_rate is the <odr> argument)
+ *
+ *   raw mode exports the EEPROM's real calibration. Any other mode exports the
+ *   calibration of that pipeline and prints a warning on stderr saying so, since
+ *   rect replaces the camera poses with virtual parallel-stereo ones.
+ *
+ * exit status: 0 on success, 1 for fewer than eight arguments, or a failed
+ * gs130_init() or gs130_get_calibration(). A write failure is not reported: a
+ * <dir> that cannot be created or written only leaves the files missing, and the
+ * YAML already went to stdout.
+ *
+ * error reporting: this program prints plain, unprefixed diagnostics on stderr
+ * ("init failed", "get_calibration failed"), so a failure that happens in here
+ * does not carry the 'gs130-...: <reason>' / try '--help' contract the shell
+ * script follows. The same is true of the other sample programs, and of '--help'
+ * and argument validation: those live in the gs130 script, not in the samples.
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
@@ -48,7 +85,7 @@ int main(int argc, char **argv)
         ret = 1; goto out;
     }
 
-    /* Get stereo (and IMU) calibration datas */
+    /* Get stereo (and IMU) calibration data */
     if(strcmp(argv[3], "raw") != 0){
         fprintf(stderr, "\033[33mwarning: mode is \"%s\", not \"raw\" -- the exported calibration is the "
             "rectified/resized one, not the EEPROM's raw calibration\033[0m\n", argv[3]);

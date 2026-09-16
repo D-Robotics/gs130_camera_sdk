@@ -1,6 +1,14 @@
 /**
  * @file vin.c
- * @brief vin node: CIM + LPWM (stereo sync + IMU FSYNC).
+ * @brief vin node: MIPI capture (CIM) plus the LPWM exposure trigger.
+ *
+ * The LPWM channels share one frame period and one pulse shape, so both eyes are
+ * triggered in lockstep. That period is also the master time base of the SDK's IMU
+ * FSYNC tracker (see src/gs130.cpp), which is why it is derived from the configured
+ * frame rate rather than passed in by the caller.
+ *
+ * The function contract (parameters, units, ownership, return value) is documented
+ * with the declaration in RDKX5.h.
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
@@ -14,23 +22,25 @@
 int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
              uint32_t width, uint32_t height, uint32_t fps)
 {
-    const uint32_t period_us = 1000000U / fps;   /* LPWM period, in us */
+    const uint32_t period_us = 1000000U / fps;   /* LPWM period = one frame, in us */
 
     vin_node_attr_t node = {
         .cim_attr = {
             .mipi_rx = (uint32_t)mipi_rx,
-            .vc_index = 0,
+            .vc_index = 0,        /* virtual channel of the sensor, matching camera.c */
             .ipi_channel = 1,
-            .cim_isp_flyby = 0,   /* VIN->ISP goes through offline (DDR); mandatory for multi-channel */
+            .cim_isp_flyby = 0,   /* no ISP fly-by: VIN writes to DDR and the ISP reads from it */
             .func = {
                 .enable_frame_id = 1,
-                .set_init_frame_id = 0,
+                .set_init_frame_id = 0,   /* frame counter starts at 0 */
                 .hdr_mode = NOT_HDR,
                 .time_stamp_en = 1,
                 .time_stamp_mode = TS_IPI_VSYNC | TS_IPI_TRIGGER,
-                .ts_src = (uint32_t)((mipi_rx == 0) ? 5 : 6),
+                .ts_src = (uint32_t)((mipi_rx == 0) ? 5 : 6),   /* timestamp source id per receiver */
             },
         },
+        /* LPWM exposure trigger: all four channels use the same period and the same raw
+           driver offset/duty values, so their outputs share one time base. */
         .lpwm_attr = {
             .enable = 1,
             .lpwm_chn_attr = {
@@ -47,13 +57,13 @@ int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
     };
 
     vin_ichn_attr_t ichn = {
-        .width = width,
+        .width = width,          /* frame size in pixels */
         .height = height,
         .format = 0x2B,      /* RAW10 */
     };
 
     vin_ochn_attr_t ochn = {
-        .ddr_en = 1,
+        .ddr_en = 1,             /* output is written to DDR */
         .ochn_attr_type = VIN_BASIC_ATTR,
         .vin_basic_attr = {
             .format = 0x2B,
@@ -71,7 +81,7 @@ int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
         return -1;
 
     hbn_buf_alloc_attr_t alloc = {
-        .buffers_num = 3,
+        .buffers_num = 3,        /* driver-held capture buffers for the VIN output */
         .is_contig = 1,
         .flags = HB_MEM_USAGE_CPU_READ_OFTEN |
                  HB_MEM_USAGE_CPU_WRITE_OFTEN |

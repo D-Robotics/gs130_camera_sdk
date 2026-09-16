@@ -21,18 +21,48 @@
 namespace gs130 {
 namespace base {
 
+/**
+ * Bounded FIFO of copyable items, safe for one or more producers and consumers.
+ *
+ * The buffer is allocated once, at construction, so pushing never allocates.  Items
+ * are stored by value: T must be default-constructible and copy-assignable, one copy
+ * is made on push and one on pop.
+ *
+ * Validity: the SDK deliberately requires a depth of at least 2. A shallower FIFO
+ * is rejected silently and remains inert: operator bool() is false, push() fails,
+ * and the accessors report the empty state.
+ *
+ * Thread safety: push(), pop(), size(), empty(), and full() serialize on the
+ * per-object mutex. Individual calls are atomic, but sequences of calls are not.
+ * Moving or destroying the object while
+ * another thread uses it is not safe.
+ *
+ * Ownership: the FIFO owns the buffered copies.  The optional Disposer hook is
+ * called with a mutable reference to an item this FIFO discards -- on overwrite in
+ * FifoMode::DropOld and for every item still queued at destruction -- which lets the
+ * owner release a resource the item refers to.  The hook runs while the FIFO mutex
+ * is held, so it must not call back into this FIFO; the caller must have joined the
+ * producer and consumer threads before the destructor runs.
+ */
 template <typename T>
 class Fifo {
 public:
     // Optional hook to release an item the FIFO drops or still holds when it dies
     using Disposer = void (*)(T &);
 
+    /**
+     * @param depth    Buffer capacity; must be at least 2, see the class note on validity.
+     * @param mode     Policy applied once the buffer is full.
+     * @param disposer Optional drop hook, or nullptr to dispose of queued items as plain copies.
+     */
     Fifo(std::size_t depth, FifoMode mode, Disposer disposer = nullptr): 
         mode_(mode), buf_(depth), valid_(depth >= 2),
         mtx_(std::make_unique<std::mutex>()), disposer_(disposer)
     {    
     }
 
+    // Disposes of the queued items through the hook; not safe to run concurrently with
+    // any other member (the user must have joined producer and consumer threads first).
     ~Fifo()
     {
         if(!valid_ || disposer_ == nullptr)return;
@@ -45,6 +75,8 @@ public:
     Fifo &operator=(const Fifo &) = delete;
 
     // define move behavior
+    // Not thread-safe: the moved-from object ends up inert (empty buffer, false
+    // operator bool()), and the items it handed over are disposed of by the new owner.
     Fifo(Fifo &&other) noexcept: 
         mode_(other.mode_), buf_(std::move(other.buf_)),
         head_(other.head_), tail_(other.tail_), count_(other.count_),
@@ -52,6 +84,8 @@ public:
     {
         other.valid_ = false;
     }
+    // Move-assignment overwrites this object's contents without running the disposer on
+    // them; the source is left inert, exactly as after move construction.
     Fifo &operator=(Fifo &&other) noexcept
     {
         if(this != &other){
@@ -68,8 +102,18 @@ public:
         return *this;
     }
 
+    /** @return true when the object is usable (depth >= 2). */
     explicit operator bool() const {return valid_;}
 
+    /**
+     * Append a copy of @p item.
+     *
+     * When the queue is full the configured FifoMode decides: DropNew refuses the item
+     * and returns false without touching the queued contents, DropOld overwrites the
+     * oldest item (after handing it to the disposer) and still reports success.
+     *
+     * @return true when the item was enqueued, false when it was refused or the object is inert.
+     */
     bool push(const T &item)
     {
         if(!valid_) return false;
@@ -86,6 +130,11 @@ public:
         return true;
     }
 
+    /**
+     * Remove the oldest item and copy it into @p item.
+     * @param[out] item Left untouched when nothing is popped.
+     * @return true when an item was returned, false when the queue was empty or the object is inert.
+     */
     bool pop(T &item)
     {
         if(!valid_)return false;
@@ -98,6 +147,7 @@ public:
         return true;
     }
 
+    /** @return Number of queued items; 0 for an inert object. */
     std::size_t size() const
     {
         if(!valid_)return 0;
@@ -105,6 +155,7 @@ public:
         return count_;
     }
 
+    /** @return true when nothing is queued, which is also the answer for an inert object. */
     bool empty() const
     {
         if(!valid_)return true;
@@ -112,6 +163,10 @@ public:
         return count_ == 0;
     }
 
+    /**
+     * @return true when the queue holds capacity() items, i.e. the next push() applies the
+     *         full policy; false for an inert object.
+     */
     bool full() const
     {
         if(!valid_)return false;
@@ -119,6 +174,7 @@ public:
         return full_unlocked();
     }
 
+    /** @return Configured depth, i.e. the constructor argument; lock-free and constant. */
     std::size_t capacity() const {return buf_.size();}
 
 private:

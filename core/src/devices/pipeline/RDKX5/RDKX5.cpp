@@ -2,6 +2,17 @@
  * @file RDKX5.cpp
  * @brief RDK X5 pipeline: camera probe/init, VIN-ISP-VSE/GDC flow setup, frame fetch.
  *
+ * Backend of gs130::pipeline::Pipeline for the RDK X5 / Horizon driver stack, built
+ * on the node helpers declared in RDKX5.h. It implements the platform-independent
+ * interface of pipeline.hpp: the constructor probes both eyes over I2C, init() builds
+ * one vflow per eye (camera -> VIN -> ISP, optionally GDC and VSE), start() starts
+ * both flows, get_frame() copies frames into caller buffers, and deinit() tears the
+ * hardware down again.
+ *
+ * Ownership: acquired handles and buffers are stored in Impl. deinit() releases a
+ * fully initialized stream; see pipeline.hpp for the partial-initialization limitation.
+ * Calibration remains caller-owned and its pointer is not retained after init().
+ *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
@@ -23,12 +34,22 @@ namespace gs130 {
 namespace pipeline {
 
 namespace {
-// SC132GS chip id
+// SC132GS sensor identification, used to probe a candidate bus + address; the same
+// register and value gs130-detect-camera reports
 constexpr uint16_t kChipIdReg = 0x3107;
 constexpr uint16_t kChipId    = 0x0132;
 
-// Frame timestamp (ns): prefer trig_tv (LPWM rising edge = exposure trigger time),
-// fall back to timestamps / tv when unavailable.
+/**
+ * @brief Convert a driver frame timestamp to nanoseconds.
+ *
+ * Preference order: trig_tv (LPWM rising edge = exposure trigger time), then the
+ * driver's timestamps field, then tv (the time the frame was ready). The exposure
+ * time is what the IMU pairing needs, so the other two are only fallbacks for when
+ * the trigger information is missing.
+ *
+ * @param[in] info Frame information returned with the frame.
+ * @return Timestamp in nanoseconds on the device clock.
+ */
 uint64_t frame_ts_ns(const hbn_frame_info_t &info)
 {
     if(info.trig_tv.tv_sec != 0 || info.trig_tv.tv_usec != 0)
@@ -43,25 +64,28 @@ uint64_t frame_ts_ns(const hbn_frame_info_t &info)
 } // namespace
 
 struct Pipeline::Impl {
-    bool probed     = false;   // both sensors probed successfully
+    bool probed     = false;   // both sensors answered the chip-id probe
     bool inited = false;   // stream built
 
-    // Per-camera resources (passed one by one when calling nodes)
+    // Per-camera resources, passed one by one when calling the node helpers.
+    // Handle 0 means "stage not present" for vflow_build(); the flow owns the nodes
+    // it was given, so they are all released by the teardown of that flow.
     struct CamHw {
         camera_handle_t    cam_fd  = 0;
         hbn_vnode_handle_t vin = 0, isp = 0, vse = 0, gdc = 0;
         hbn_vflow_handle_t vflow    = 0;
         hbn_vnode_handle_t output_node = 0;
         uint32_t           output_chn  = 0;
-        hb_mem_common_buf_t gdc_bin{};
+        hb_mem_common_buf_t gdc_bin{};   // GDC config binary; only allocated in GDC modes
         int  mipi_rx = -1, reset_gpio = -1, i2c_bus = -1;
-        uint8_t i2c_addr = 0;
+        uint8_t i2c_addr = 0;   // 0 = this eye was not found during probing
     } cam[static_cast<std::size_t>(CamIndex::Num)];
 
-    // Geometry parameters
+    // Geometry parameters, all in pixels: input = sensor, mid = GDC output and VSE
+    // input (equal to input when GDC is skipped), output = size handed to the caller
     uint32_t input_w = 0, input_h = 0, output_w = 0, output_h = 0;
     uint32_t mid_w = 0, mid_h = 0, vse_chn = 0;
-    int install_angle = 0;
+    int install_angle = 0;   // degrees, normalized to [0, 360)
 };
 
 Pipeline::Pipeline(
@@ -69,7 +93,9 @@ Pipeline::Pipeline(
     const uint8_t *bus_list, std::size_t bus_num)
     : impl_(std::make_unique<Impl>())
 {
-    // Iterate bus_list: read chip id to confirm an SC132GS on that bus + address
+    // Iterate bus_list: read chip id to confirm an SC132GS on that bus + address.
+    // The first bus that answers wins for each eye; the other eye keeps being probed
+    // on the remaining buses.
     for(std::size_t i = 0; i < bus_num; ++i){
         const uint8_t bus = bus_list[i];
 
@@ -119,11 +145,13 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
     impl_->output_w = cfg.output_width;
     impl_->output_h = cfg.output_height;
 
+    // Raw mode hands the sensor frame through untouched: the requested output size
+    // must therefore be the sensor size
     if(cfg.mode == OutputMode::Raw)
         if(cfg.sensor_width != cfg.output_width || cfg.sensor_height != cfg.output_height)
             return Status::ParamError;
 
-    // Determine mipi_rx and reset_gpio
+    // Determine mipi_rx and reset_gpio; both are keyed by the bus the eye was found on
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
         const int bus = impl_->cam[i].i2c_bus;
         if(bus < 0 || bus >= 32 || cfg.bus_mipi_rx[bus] == 0xFF)return Status::ParamError;
@@ -135,6 +163,8 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
     // Build the stream
     // Camera node
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+        // MIPI link parameters for this sensor (link clock, settle and MCLK), fixed
+        // here: they are not part of PipelineConfig and do not depend on the geometry
         int ret = camera_open(
             &impl_->cam[i].cam_fd,
             impl_->cam[i].i2c_addr,
@@ -176,19 +206,24 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
     // Resize + install rotation: pure rotation;
     // Raw: skip GDC
     if(cfg.mode != OutputMode::Raw){
+        // Resize and Rect both update output intrinsics, so both need calibration.
         if(cal == nullptr)return Status::ParamError;
 
+        // Normalize the install angle to [0, 360) degrees; only a right angle can be
+        // expressed by the map rotation below
         impl_->install_angle = ((cal->install_angle % 360) + 360) % 360;
         if(impl_->install_angle % 90 != 0) return Status::ParamError;
 
         // Handle Rect and rotated Resize cases
         if(cfg.mode == OutputMode::Rect || impl_->install_angle != 0){
-            // Rotated width/height
+            // Rotated width/height: the map is built in the output orientation, so the
+            // sensor size is swapped for 90 and 270 degrees
             const bool swap = (impl_->install_angle == 90 || impl_->install_angle == 270);
             const uint32_t src_w = swap ? impl_->input_h : impl_->input_w;
             const uint32_t src_h = swap ? impl_->input_w : impl_->input_h;
 
-            // Generate GDC Map
+            // Generate the GDC map: mid_w x mid_h grid entries, each holding the source
+            // pixel to sample; stereo_rectify() chooses the rectified grid size
             std::vector<RemapPoint> map[static_cast<std::size_t>(CamIndex::Num)];
             // Stereo distortion rectification for both cameras
             if(cfg.mode == OutputMode::Rect){
@@ -201,7 +236,8 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
                     return Status::Unsupported;
                 }
             }
-            // Rotation-only correction
+            // Rotation-only correction: identity map, so the GDC only rotates and the
+            // mid size stays the source size
             else{
                 impl_->mid_w = src_w;
                 impl_->mid_h = src_h;
@@ -245,7 +281,9 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
             return Status::Unsupported;
         }
 
-        // Aspect-ratio-preserving ROI + up/down-sampling channel (0=down, 5=up)
+        // Aspect-ratio-preserving ROI, then the VSE output channel: the down-scaling
+        // channel when the ROI covers the output, the up-scaling channel when it is
+        // smaller (0 = down-scaling, 5 = up-scaling on this platform)
         const common_rect_t roi = aspect_roi(impl_->mid_w, impl_->mid_h,
                                              impl_->output_w, impl_->output_h);
         impl_->vse_chn = (impl_->output_w > roi.w || impl_->output_h > roi.h) ? 5 : 0;
@@ -274,7 +312,8 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         }
     }
 
-    // Bind nodes and determine the output position
+    // Bind each eye's nodes into its own flow and remember the node/channel to fetch
+    // frames from (Raw: ISP, Resize: VSE, Rect: VSE behind GDC)
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
         int ret = vflow_build(
             &impl_->cam[i].vflow, impl_->cam[i].cam_fd,
@@ -302,7 +341,8 @@ void Pipeline::deinit()
                      impl_->cam[i].vin, impl_->cam[i].isp,
                      impl_->cam[i].vse, impl_->cam[i].gdc,
                      &impl_->cam[i].gdc_bin, impl_->cam[i].reset_gpio);
-        // teardown passes by value so handles are not written back; clear them here
+        // teardown passes the handles by value, so they are not written back; clear the
+        // stored ones here to leave no stale handle behind
         impl_->cam[i].cam_fd = 0;
         impl_->cam[i].vin = impl_->cam[i].isp = impl_->cam[i].vse = impl_->cam[i].gdc = 0;
         impl_->cam[i].vflow = 0;
@@ -310,7 +350,8 @@ void Pipeline::deinit()
         impl_->cam[i].output_chn  = 0;
     }
 
-    // Power on again: vflow_destroy powered off; restore sensors to normal detectable state
+    // Restore each controlled sensor to its normal, detectable state after its flow
+    // has been destroyed by running the reset sequence again.
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
         if(impl_->cam[i].reset_gpio >= 0)
             sensor_power(impl_->cam[i].reset_gpio, 1);
@@ -357,6 +398,7 @@ Status Pipeline::get_frame(CamIndex idx,
                            uint64_t *timestamp_ns,
                            uint32_t timeout_ms)
 {
+    // y, uv and timestamp_ns are caller-owned; the stream must be initialized
     if(y == nullptr || uv == nullptr || timestamp_ns == nullptr || !impl_->inited)
         return Status::ParamError;
 
@@ -368,7 +410,8 @@ Status Pipeline::get_frame(CamIndex idx,
     if(hbn_vnode_getframe(c.output_node, c.output_chn, timeout_ms, &img) != 0)
         return Status::Timeout;
 
-    // Check width/height; report error on mismatch
+    // Check width/height; report error on mismatch, the caller's geometry is not
+    // converted or cropped here
     if((uint32_t)img.buffer.width != width || (uint32_t)img.buffer.height != height){
         hbn_vnode_releaseframe(c.output_node, c.output_chn, &img);
         return Status::ParamError;

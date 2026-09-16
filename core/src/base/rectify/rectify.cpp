@@ -2,6 +2,11 @@
  * @file rectify.cpp
  * @brief stereo_rectify implementation: fov_scale coarse+fine search, 32-px frame expansion, map generation.
  *
+ * The search phase evaluates the black-border criterion on a small width-proportional
+ * proxy of the output grid instead of the full-size map, which keeps the search cheap.
+ * The proxy scales the projection matrix with the size and measures the border in
+ * source pixels, just coarsely, so the criterion is the same up to that resolution.
+ *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
@@ -19,12 +24,12 @@ namespace gs130 {
 namespace base {
 namespace {
 
-constexpr int    kProbeWidth   = 128;    // proxy width for the search phase; correctness is resolution-independent
-constexpr int    kGridStep     = 32;     // Fisheye frame-expansion step
-constexpr double kCoarseBegin  = 0.10;
-constexpr double kCoarseEnd    = 2.00;
-constexpr double kCoarseStep   = 0.05;
-constexpr double kFineStep     = 0.005;
+constexpr int    kProbeWidth   = 128;    // Fixed proxy width for the approximate search.
+constexpr int    kGridStep     = 32;     // Fisheye frame-expansion step.
+constexpr double kCoarseBegin  = 0.10;   // First fov_scale value in the bounded search.
+constexpr double kCoarseEnd    = 2.00;   // last fov_scale tried by the coarse sweep
+constexpr double kCoarseStep   = 0.05;   // coarse sweep step
+constexpr double kFineStep     = 0.005;  // fine sweep step, over one coarse step around the coarse result
 
 int dist_count(DistModel m)
 {
@@ -66,6 +71,10 @@ bool border_in_source(const cv::Mat &mx, const cv::Mat &my, int src_w, int src_h
 // final generation uses out_size. Otherwise, when expanding the frame, the focal length would scale
 // with the size, angular coverage would stay unchanged, the black-border check would always pass,
 // and the expansion loop would never terminate.
+//
+// Outputs are the per-camera rectification rotations rect_lR/rect_rR, the 3x4 projection
+// matrices proj_lP/proj_rP (principal point placed at the center of out_size), and the
+// internally computed disparity-to-depth matrix Q, which is discarded by every caller.
 void stereo_rectify_impl(DistModel model,
                     const cv::Mat &lK, const cv::Mat &lD,
                     const cv::Mat &rK, const cv::Mat &rD,
@@ -97,6 +106,7 @@ void stereo_rectify_impl(DistModel model,
     proj_rP.at<double>(1, 2) = out_size.height * 0.5;
 }
 
+// Floating-point maps in source-image coordinates: CV_32FC1 is what the GDC remap consumes.
 void undistort_rectify_map(DistModel model,
                            const cv::Mat &K, const cv::Mat &D,
                            const cv::Mat &rect_R, const cv::Mat &P,
@@ -109,6 +119,8 @@ void undistort_rectify_map(DistModel model,
 }
 
 // Single fov_scale attempt: rectify -> proxy map -> black-border check
+// The returned bool is the acceptance criterion of the search: true when every sampled
+// border pixel of both proxy maps stays inside the source image.
 bool try_fov_scale(DistModel model,
                    const cv::Mat &lK, const cv::Mat &lD,
                    const cv::Mat &rK, const cv::Mat &rD,
@@ -140,6 +152,8 @@ bool try_fov_scale(DistModel model,
            border_in_source(rmx, rmy, src_size.width, src_size.height);
 }
 
+// Proxy grid of a given output size: fixed width (kProbeWidth), height rounded to keep
+// the output aspect ratio, so the criterion is evaluated on the same shape at a lower cost.
 cv::Size probe_of(cv::Size out_size)
 {
     int h = static_cast<int>(kProbeWidth * static_cast<double>(out_size.height) /
@@ -150,6 +164,9 @@ cv::Size probe_of(cv::Size out_size)
 }
 
 // Find the largest black-border-free fov_scale: coarse search first, then fine search in its neighborhood
+// Both sweeps stop at the first rejected scale, which relies on the criterion being
+// monotone in fov_scale for a fixed output size.  The fine sweep then walks up to one
+// coarse step past the coarse result, so it can only refine it by at most that step.
 double find_best_fov_scale(DistModel model,
                            const cv::Mat &lK, const cv::Mat &lD,
                            const cv::Mat &rK, const cv::Mat &rD,
@@ -178,6 +195,8 @@ double find_best_fov_scale(DistModel model,
 }
 
 // Right-camera pose in the left-camera frame: R_r2l = lR*rR^T, t_r2l = lT - R_r2l*rT
+// Inputs are the sensor-to-reference poses of types.hpp, so the result is the pose of the
+// right camera expressed in the left camera frame.
 void relative_pose(const double *lR, const double *lT,
                    const double *rR, const double *rT,
                    cv::Mat &R_r2l, cv::Mat &t_r2l)
@@ -190,6 +209,8 @@ void relative_pose(const double *lR, const double *lT,
     t_r2l = lTm - R_r2l * rTm;
 }
 
+// OpenCV K from the calibration fields; the skew is 0 and the last row is (0,0,1).
+// The returned matrix owns its data, so it does not alias the calibration.
 cv::Mat k_mat(const CameraIntrinsics &c)
 {
     return (cv::Mat_<double>(3, 3) << c.fx, 0.0, c.cx,
@@ -197,6 +218,7 @@ cv::Mat k_mat(const CameraIntrinsics &c)
                                       0.0, 0.0, 1.0);
 }
 
+// Distortion vector in the length OpenCV expects for the model: 4 for fisheye, 8 for pinhole.
 cv::Mat d_mat(const CameraIntrinsics &c, DistModel m)
 {
     return cv::Mat(dist_count(m), 1, CV_64F,
@@ -215,6 +237,8 @@ void align_focal_and_center(cv::Mat &proj_lP, cv::Mat &proj_rP, int w, int h)
     }
 }
 
+// fill_map flattens both OpenCV maps into one vector: output pixel (x,y) lands at
+// index y*w + x, so the table is row-major with the top-left output pixel first.
 void fill_map(std::vector<RemapPoint> *dst,
               const cv::Mat &mx, const cv::Mat &my, int w, int h)
 {
@@ -230,6 +254,8 @@ void fill_map(std::vector<RemapPoint> *dst,
 
 // Virtual calibration write-back: zero distortion, shared focal, centered principal point, R = original R * rect_R^T, T kept unchanged.
 // orig_R and the target R may alias the same memory, so clone the original R before writing back.
+// Only fx/fy/cx/cy and the four matching K entries are written: the rest of K (skew and
+// the last row) is left as the caller had it.
 void write_virtual(CameraIntrinsics *k, double *R,
                    const double *orig_R,
                    const cv::Mat &P, const cv::Mat &rect_R)
@@ -250,6 +276,8 @@ void write_virtual(CameraIntrinsics *k, double *R,
 
 } // namespace
 
+// Reject the configurations the search cannot handle before touching any output; nothing
+// is written back on these paths, so a rejected call leaves *cal and the maps unchanged.
 Status stereo_rectify(StereoImuModel *cal,
                       uint32_t src_w, uint32_t src_h,
                       uint32_t *grid_w, uint32_t *grid_h,
@@ -280,12 +308,16 @@ Status stereo_rectify(StereoImuModel *cal,
     cv::Size out_size(static_cast<int>(src_w), static_cast<int>(src_h));
 
     // Pinhole alpha=0 already applies zoom+shift for maximum framing; no search or frame expansion needed
+    // The grid starts at the source size and only grows for fisheye.
     double fov_scale = 1.0;
     if(model == DistModel::Fisheye){
         fov_scale = find_best_fov_scale(model, lK, lD, rK, rD, R_r2l, t_r2l,
                                         src_size, out_size);
 
         // After touching the border, expand in 32-pixel steps to the maximum frame: grow only in the direction that stays black-border-free
+        // Both directions are probed first, so the axis that is already blocked is not
+        // grown; a single direction is then extended until that probe fails, and if
+        // neither direction is free the grid keeps the source size.
         const cv::Size grow_w(out_size.width + kGridStep, out_size.height);
         const cv::Size grow_h(out_size.width, out_size.height + kGridStep);
         const bool w_ok = try_fov_scale(model, lK, lD, rK, rD, R_r2l, t_r2l,
@@ -309,6 +341,8 @@ Status stereo_rectify(StereoImuModel *cal,
         }
     }
 
+    // Final generation at the accepted output size; from here on the calibration is
+    // modified, which is why every rejection above happens earlier.
     cv::Mat rect_lR, rect_rR, proj_lP, proj_rP;
     stereo_rectify_impl(model, lK, lD, rK, rD, R_r2l, t_r2l,
                         src_size, out_size, out_size, fov_scale,
@@ -326,6 +360,7 @@ Status stereo_rectify(StereoImuModel *cal,
     fill_map(right_map, rmx, rmy, out_size.width, out_size.height);
 
     // In-place write-back of virtual intrinsics/extrinsics (zero distortion, shared focal, centered principal point; T unchanged)
+    // Both cameras keep their translation, so the stereo baseline survives rectification.
     write_virtual(&cal->cam_left,  cal->cam_left_R,  cal->cam_left_R,  proj_lP, rect_lR);
     write_virtual(&cal->cam_right, cal->cam_right_R, cal->cam_right_R, proj_rP, rect_rR);
     return Status::Ok;

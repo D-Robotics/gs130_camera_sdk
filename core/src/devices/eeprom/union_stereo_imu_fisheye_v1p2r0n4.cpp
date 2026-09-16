@@ -4,6 +4,10 @@
  *
  * This file is self-contained: header, checksum, offsets, and field widths are all local; no code is shared with other models.
  *
+ * The EEPROM is read once as a flat byte image, so the offsets below are byte offsets.
+ * Floating-point fields are copied directly into host float/double objects; this format
+ * therefore assumes the EEPROM encoding matches the target's IEEE-754 byte order.
+ *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
@@ -18,6 +22,7 @@ namespace eeprom {
 namespace {
 
 // ============================== Identification ==============================
+// The identification area is header[0..14], followed by one checksum byte at offset 15.
 constexpr uint16_t kHeaderSize = 15;                 // header[0..14]
 constexpr uint16_t kChecksumOff = kHeaderSize;       // checksum follows immediately
 constexpr uint8_t  kChecksumLen = 14;                // only the first 14 bytes are summed
@@ -33,25 +38,28 @@ constexpr uint8_t kHeader[kHeaderSize] = {
 
 // ============================== Layout offsets ==============================
 // Camera intrinsics and stereo extrinsics are double (8B); IMU intrinsics and IMU extrinsics are float (4B)
+// These are byte offsets into the flat image, not indices of aligned fields: the image is
+// addressed byte-wise, so an offset is not required to be a multiple of its field width.
 
 constexpr uint16_t kLFx           = 0x0018;   // start of the EEPROM L intrinsics block
 constexpr uint16_t kRFx           = 0x0081;   // start of the EEPROM R intrinsics block
 constexpr uint16_t kStereoR       = 0x00EA;   // stereo rotation 3x3 (double)
 constexpr uint16_t kStereoT       = 0x0132;   // stereo translation 3  (double)
-constexpr uint16_t kAccelMisalign = 0x0153;
-constexpr uint16_t kAccelScale    = 0x0177;
-constexpr uint16_t kAccelBias     = 0x0183;
-constexpr uint16_t kAccelNoise    = 0x018F;
-constexpr uint16_t kAccelWalk     = 0x0193;
-constexpr uint16_t kGyroMisalign  = 0x0197;
-constexpr uint16_t kGyroScale     = 0x01BB;
-constexpr uint16_t kGyroBias      = 0x01C7;
-constexpr uint16_t kGyroNoise     = 0x01D3;
-constexpr uint16_t kGyroWalk      = 0x01D7;
+constexpr uint16_t kAccelMisalign = 0x0153;   // accel cross-axis 3x3 (float), row-major
+constexpr uint16_t kAccelScale    = 0x0177;   // accel scale 3 (float)
+constexpr uint16_t kAccelBias     = 0x0183;   // accel bias 3 (float)
+constexpr uint16_t kAccelNoise    = 0x018F;   // accel noise density (float)
+constexpr uint16_t kAccelWalk     = 0x0193;   // accel random walk (float)
+constexpr uint16_t kGyroMisalign  = 0x0197;   // gyro cross-axis 3x3 (float), row-major
+constexpr uint16_t kGyroScale     = 0x01BB;   // gyro scale 3 (float)
+constexpr uint16_t kGyroBias      = 0x01C7;   // gyro bias 3 (float)
+constexpr uint16_t kGyroNoise     = 0x01D3;   // gyro noise density (float)
+constexpr uint16_t kGyroWalk      = 0x01D7;   // gyro random walk (float)
 constexpr uint16_t kImuR          = 0x01E0;   // IMU -> left camera rotation (float)
 constexpr uint16_t kImuT          = 0x0204;   // IMU -> left camera translation (float)
-constexpr uint16_t kSize          = 0x0219;
+constexpr uint16_t kSize          = 0x0219;   // bytes to read for a full calibration
 
+// memcpy avoids unaligned typed access; the EEPROM representation must match host byte order.
 double read_double(const uint8_t *buf, uint16_t off)
 {
     double v;

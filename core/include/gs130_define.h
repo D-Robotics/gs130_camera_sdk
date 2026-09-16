@@ -1,9 +1,20 @@
 /**
  * @file gs130_define.h
- * @brief Optional customer-facing preset configuration macros.
+ * @brief Optional preset configurations for supported GS130 modules.
  *
- * NOTE: the preset values in this file may change between SDK versions;
- *       no backward compatibility is guaranteed for this file.
+ * Include gs130.h, string.h, stdio.h, and stdlib.h before this header. These
+ * initializers use GNU C designated-range syntax and compound literals; they are
+ * intended for the project's GNU C build and are not a portable C++ interface.
+ *
+ * GS130_CONFIG() selects a preset for the build platform reported by
+ * gs130_platform(). GS130_CONFIG_PLATFORM() accepts an explicit platform string.
+ * In both macros, device is a model-name string, mode is a gs130_camera_mode_t,
+ * w and h are output dimensions in pixels, fps is frames per second, and odr is
+ * the IMU output data rate in Hz. Unsupported platform/model pairs print an error
+ * and terminate the process.
+ *
+ * @warning Preset values may change between SDK releases. This header does not
+ *          provide a backward-compatible configuration ABI.
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.

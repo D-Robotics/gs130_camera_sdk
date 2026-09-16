@@ -1,20 +1,70 @@
 /**
  * @file gs130-rec.c
- * @brief Record script
+ * @brief Record camera frames and IMU packets into index ranges
+ *
+ * usage: gs130-rec <cam_from> <cam_to> <imu_from> <imu_to> <out_dir> <stitch>
+ *                   <device> <mode> <width> <height> <fps> <odr>
+ *
+ *   Positional arguments, all required, no flags:
+ *
+ *   <cam_from>, <cam_to>  half-open camera index range [from, to) to keep,
+ *                         from = -1 records no camera frames
+ *   <imu_from>, <imu_to>  the same for IMU packets
+ *   <out_dir>             output directory, created when missing
+ *   <stitch>              non-zero records one stitched left-right frame per
+ *                         camera index, 0 records one file per eye
+ *   <device>              device model: GS130WI | GS130W
+ *   <mode>                pipeline mode: raw | resize | rect (anything else is raw)
+ *   <width>, <height>     output size in pixels
+ *   <fps>                 camera frame rate
+ *   <odr>                 IMU output data rate in Hz
+ *
+ *   Normally not called directly: 'rec' inside `gs130 shell` parses
+ *   '-c <from:to> -i <from:to> -o <dir> [--stitch]' and passes the device config
+ *   locked by the shell in exactly this order, with -1 for a range that was not
+ *   given. Runs until SIGINT (Ctrl-C), which then writes out what was captured.
+ *
+ * output:
+ *
+ *   <out_dir>/cam/%06ld.nv12        one stitched frame per index (<stitch> != 0)
+ *   <out_dir>/cam/%06ld_L.nv12      left eye, <stitch> == 0
+ *   <out_dir>/cam/%06ld_R.nv12      right eye, <stitch> == 0
+ *   <out_dir>/imu.csv               one row per kept packet
+ *
+ *   The number in a camera file name is the frame's index in the range, so
+ *   '-c 100:110' writes 000100 .. 000109; an index is 0-based and counts what the
+ *   stream produced since startup, so every run numbers its own data from 0.
+ *   Each file holds one tightly packed NV12 frame, width * height * 3 / 2 bytes.
+ *   imu.csv starts with a header row and its timestamp_ns column is the IMU
+ *   sample time in nanoseconds on the camera clock, the same quantity the 'run'
+ *   sample prints in seconds:
+ *
+ *   index,timestamp_ns,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,temp,is_fsync
+ *
+ *   Progress goes to stdout while recording: an opening "recording into ..."
+ *   line, then a "[<elapsed>s] cam <kept>/<cap> imu <kept>/<cap>" line every
+ *   REPORT_US (1 s), and finally the kept totals and the written paths. <elapsed>
+ *   counts seconds since this run started (a monotonic clock), unlike the
+ *   recorded timestamps; is_fsync is 1 when the packet carries an IMU FSYNC
+ *   anchor and 0 otherwise.
+ *
+ * exit status: 0 after Ctrl-C, 1 when there is no range to keep, when the camera
+ * range exceeds MAX_FRAMES ("camera range is <n> frames, the limit is 512"), on
+ * an allocation failure, or when gs130_init()/gs130_start() failed. The 'rec'
+ * command validates its ranges before starting this program, so those messages
+ * come from the shell, not from here.
+ *
+ * error reporting: this program prints plain, unprefixed diagnostics on stderr
+ * ("nothing to record", "out of memory", "cannot open <path>"), so a failure that
+ * happens in here does not carry the 'gs130-...: <reason>' / try '--help'
+ * contract the shell script follows. The same is true of the other sample
+ * programs, and of '--help' and argument validation: those live in the gs130
+ * script, not in the samples.
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
  * See the LICENSE file in the project root for the full license text.
- *
- * usage: gs130-rec <cam_from> <cam_to> <imu_from> <imu_to> <out_dir> <stitch>
- *                  <device> <mode> <w> <h> <fps> <odr>
- *
- *   <cam|imu>_from/_to  half-open index range to keep, from = -1 for none
- *   out_dir             created when missing
- *   stitch              1 records one left-right frame per index, 0 one file per eye
- *
- * output: <out_dir>/cam/%06ld[_L|_R].nv12 and <out_dir>/imu.csv
  */
 #include "gs130.h"
 #include "gs130_define.h"

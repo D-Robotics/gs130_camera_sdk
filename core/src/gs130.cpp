@@ -48,7 +48,7 @@ static gs130_err_t to_err(Status st)
 
 /* Internal device state */
 struct gs130_device_s {
-    std::mutex              mtx;   // API lock: every public function takes it; threads never do
+    std::mutex              mtx;   // Serializes public API operations; worker threads do not acquire it.
 
     std::unique_ptr<eeprom::Eeprom>     eeprom;
     std::unique_ptr<imu::Imu>           imu;
@@ -116,7 +116,7 @@ static void mat33_t_mul_vec(const double *A, const double *v, double *out)   // 
         out[i] = A[0*3+i]*v[0] + A[1*3+i]*v[1] + A[2*3+i]*v[2];
 }
 
-// stored extrinsics (sensor -> reference frame) of a frame; {nullptr, nullptr} on invalid frame
+// Return the stored sensor-to-reference extrinsics; invalid identifiers yield null pointers.
 static std::pair<double*, double*> frame_extrinsics(gs130_device_t *dev, gs130_reference_frame_t frame)
 {
     switch(frame){
@@ -207,8 +207,7 @@ static void imu_thread_func(gs130_device_t *dev)
     }
 }
 
-// Camera thread: wait for the FSYNC handshake, start the stream, then fetch
-// half-frame-aligned stereo pairs and push them into the FIFO
+// Release all pixel buffers in a frame pair; used as the camera FIFO disposer.
 static void free_frame_pair(std::array<gs130_image_nv12_t, static_cast<std::size_t>(CamIndex::Num)> &pair)
 {
     for(auto &image : pair) {
@@ -217,6 +216,8 @@ static void free_frame_pair(std::array<gs130_image_nv12_t, static_cast<std::size
     }
 }
 
+// Wait for the FSYNC handshake, start streaming, align stereo frames within half
+// a frame period, and enqueue completed frame pairs.
 static void camera_thread_func(gs130_device_t *dev)
 {
     while(dev->state.load() == Status::Ok && !dev->camera_on.load())usleep(1000);
@@ -225,7 +226,7 @@ static void camera_thread_func(gs130_device_t *dev)
     const Status st_start = dev->pipeline->start(dev->fsync_camera);
     if(st_start != Status::Ok){dev->state.store(st_start);return ;}
 
-    const uint64_t cycle_ns = 1000000000ULL / dev->fps / 2;
+    const uint64_t cycle_ns = 1000000000ULL / dev->fps / 2; // Maximum stereo skew: half a frame period.
     const size_t R = static_cast<std::size_t>(CamIndex::Right);
     const size_t L = static_cast<std::size_t>(CamIndex::Left);
 
@@ -343,7 +344,7 @@ free_frame:
     }
 }
 
-// stop the worker threads; the caller must hold dev->mtx
+// Stop and join the worker threads. The caller must hold dev->mtx.
 static void stop_locked(gs130_device_t *dev)
 {
     Status expected = Status::Ok;
@@ -356,7 +357,7 @@ static void stop_locked(gs130_device_t *dev)
     if(dev->imu)dev->imu->stop();
 }
 
-/* ---- Public C API (skeleton) ---- */
+/* ---- Public C API ---- */
 
 extern "C" {
 
@@ -481,6 +482,7 @@ gs130_err_t gs130_init(
         pc.output_height  = cc.output_height;
 
         StereoImuModel *cal = dev->eeprom ? &dev->cal_internal : nullptr;
+        // RESIZE and RECT update output intrinsics, so both require calibration.
         if(cal == nullptr && cc.mode != GS130_CAMERA_MODE_RAW)return GS130_PARAM_ERROR;
         Status st = dev->pipeline->init(pc, cal);
         if(st != Status::Ok)return to_err(st);
@@ -584,7 +586,7 @@ gs130_err_t gs130_get_stereo_nv12_frame(
     std::array<gs130_image_nv12_t, 2> f;
     if(!dev->camera_fifo->pop(f))return GS130_TIMEOUT;
 
-    *image = f[0];   // zero-copy: the combined frame was spliced by the camera thread
+    *image = f[0];   // Transfer the assembled buffer without another pixel copy.
     return GS130_OK;
 }
 

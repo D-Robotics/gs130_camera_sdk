@@ -10,7 +10,7 @@
 #   make deb                  pack the .deb (also part of a plain 'make')
 #   make clean                remove build/ and out/
 #
-# 'make -j8' is safe and much faster on the X5 (8 cores: ~15 s instead of ~40 s).
+# 'make -j<N>' is safe; the parallel build speedup scales with the core count.
 #
 # Compiling first prints what is being built and asks for confirmation; the question
 # is skipped when stdin is not a terminal, and GS130_NO_CONFIRM=1 skips it explicitly.
@@ -20,6 +20,10 @@
 #         the .deb package in out/ (next to the platform directories, not inside one).
 # A header change rebuilds exactly the objects that include it: the compiler
 # writes the dependency lists with -MMD and this Makefile includes them below.
+#
+# A platform name is only honoured as the first goal on the command line, so
+# 'make RDKX5 samples' builds for RDKX5 while 'make samples RDKX5' builds the
+# default platform, RDKX5.
 
 # ---- Dependencies ----
 
@@ -39,8 +43,12 @@ HBN_LIBS    := -lvpf -lhbmem -lcam
 # ---- Platform ----
 # Available platforms = subdirectory names under src/devices/pipeline/.
 # 'make <platform>' builds for it; a bare 'make' defaults to RDKX5.
+# Only the first command-line goal is inspected (see GOAL below), so the platform
+# name has to come first: 'make RDKX5 samples' selects RDKX5, 'make samples RDKX5'
+# builds the default platform instead.
 PLATFORMS := $(patsubst src/devices/pipeline/%/,%,$(wildcard src/devices/pipeline/*/))
 
+# only the first goal on the command line can name a platform
 GOAL := $(firstword $(MAKECMDGOALS))
 ifneq ($(filter $(GOAL),$(PLATFORMS)),)
 PLATFORM := $(GOAL)
@@ -73,9 +81,9 @@ COMMON_FLAGS = -Wall -Wextra -O2 -g -fPIC -MMD -MP
 CFLAGS   = $(COMMON_FLAGS) -std=gnu11
 CXXFLAGS = $(COMMON_FLAGS) -std=gnu++17 $(PLATFORM_IMPL) $(VERSION_DEF) $(PLATFORM_STR)
 INCLUDES = -Iinclude -Isrc -I/usr/include/opencv4
-# Linking against the static OpenCV archives dominates every link; ld.gold is about
-# 3.5x faster than the default ld.bfd (2.4 s -> 0.7 s) and produces the same library.
-# Used when it is installed, otherwise the default linker is kept.
+# Linking against the static OpenCV archives dominates every link; ld.gold links
+# these archives noticeably faster than the default ld.bfd and produces the same
+# library. Used when it is installed, otherwise the default linker is kept.
 LDFLAGS_GOLD = $(shell command -v ld.gold >/dev/null 2>&1 && echo -fuse-ld=gold)
 # glibc stays dynamic: libc.so.6 / libm.so.6 / ld.so cannot be linked into a shared
 # library, and libpthread/librt/libdl are part of libc here (no NEEDED of their own).
@@ -119,12 +127,12 @@ LIB_SHARED   = $(OUT_DIR)/libgs130.so
 # Compiling asks once for confirmation, after saying what is being built.  The
 # question is skipped when stdin is not a terminal, so scripted and CI builds never
 # block, and GS130_NO_CONFIRM=1 skips it in an interactive shell too.  'make -n' and
-# 'make -q' never run recipes, so the prerequisite is dropped there to keep a dry run
-# readable.
+# 'make -q' never run recipes, so they never run the question either.
 #
 # The object rules carry it as an order-only prerequisite as well as the named
-# targets below: under 'make -j8' make starts every prerequisite of a target at once,
-# so without that the objects would compile while the question is still on screen.
+# targets below: under 'make -j<N>' make starts every prerequisite of a target at
+# once, so without that the objects would compile while the question is still on
+# screen.
 # Order-only ('|') and not a plain prerequisite, so that a phony target -- which is
 # always considered updated -- does not force a rebuild of every object on every run.
 
@@ -264,9 +272,12 @@ clean:
 # library, both headers, and the gs130 command together with the helper binaries it
 # calls from its own directory. The package is assembled with dpkg-deb directly, so
 # the build needs no debhelper/fakeroot and no network.
-# The platform is compiled into the library, so it rides in the version and not in the
-# package name: gs130_<version>+<platform>_<arch>.deb. A repack that does not change the
-# version appends a counter to the platform label, e.g. 0.0.1+RDKX5.
+# The package is named gs130-camera, and the platform is compiled into the library, so
+# it rides in the version and not in the package name: DEB_VERSION is
+# <version>+<platform>, where the platform is the .deb revision.
+#   out/gs130-camera_<version>+<platform>_<arch>.deb
+# Every build of the same version and platform therefore repacks the same file name;
+# there is no counter that keeps older packages apart.
 
 MULTIARCH     := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine)
 # dpkg's word for the architecture. uname says 'aarch64' for the same machine, which
@@ -277,9 +288,9 @@ DEB_VERSION   := $(VERSION)+$(PLATFORM)
 DEB_FILE      := $(OUT_ROOT)/$(DEB_NAME)_$(DEB_VERSION)_$(DEB_ARCH).deb
 DEB_ROOT      := build/deb/$(DEB_NAME)
 DEB_MAINTAINER ?= hachi_leaf <xiaoye.zhang@d-robotics.cc>
-# xz -0 instead of the dpkg default (zstd -19): it compresses this ~10 MB payload in
-# 0.5 s instead of 13 s, for 8% more package size. Since a plain 'make' packs as well,
-# that difference would otherwise show up on every build.
+# xz -0 instead of the dpkg default (zstd -19): compressing the payload is much
+# cheaper at the lowest xz level, at the cost of a larger package. Since a plain
+# 'make' packs as well, that difference would otherwise show up on every build.
 
 deb: $(CONFIRM) $(DEB_FILE)
 

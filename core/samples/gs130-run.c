@@ -1,6 +1,49 @@
 /**
  * @file gs130-run.c
- * @brief Smoke test script
+ * @brief Stream the camera and the IMU and print the newest data of each
+ *
+ * usage: gs130-run <device> <mode> <width> <height> <fps> <odr>
+ *
+ *   Positional arguments, all required, no flags:
+ *
+ *   <device>  device model: GS130WI | GS130W
+ *   <mode>    pipeline mode: raw | resize | rect (anything else means raw)
+ *   <width>   output width in pixels
+ *   <height>  output height in pixels
+ *   <fps>     camera frame rate
+ *   <odr>     IMU output data rate in Hz
+ *
+ *   Normally not called directly: 'run' inside `gs130 shell` passes the device
+ *   config locked by the shell in exactly this order. Runs until SIGINT
+ *   (Ctrl-C), which stops capture and exits cleanly; it records nothing.
+ *
+ * output: on stdout, a dashed separator followed by two lines, refreshed at most
+ * every PRINT_US (20 ms, i.e. 50 times per second):
+ *
+ *   ------------------------------------------------------------------
+ *   Camera  [ID: <index> | fps: <rate> | Left timestamp: <s> s | Right timestamp: <s> s]
+ *   IMU     [ID: <index> | odr: <rate> Hz | Timestamp: <s> s | Accel <x> <y> <z> m/s^2 | Gyro <x> <y> <z> rad/s | Temp <t> C]
+ *
+ *   The '------' line above is as wide as the longer of the two lines, so its
+ *   length follows the numbers; the two field layouts are exactly as shown.
+ *   <index> is 0-based and counts what the stream produced since startup, so it
+ *   keeps growing and restarts at 0 on the next run. <rate> is the average over
+ *   the last CAM_WINDOW frames / IMU_WINDOW packets and prints as a right-aligned
+ *   "--" until that many have arrived. Each <s> is a timestamp_ns converted to
+ *   seconds with 6 decimals (divided by 1e9): the capture/sample time on the
+ *   camera clock, not seconds since this program started. Accel is m/s^2, gyro
+ *   rad/s, temp degrees Celsius, and every number is printed signed (accel and
+ *   temp with two and one decimals, gyro with three). Before the first frame or
+ *   packet the respective line reads "Camera  [no frame yet]" / "IMU     [no
+ *   packet yet]".
+ *
+ * exit status: 0 after Ctrl-C, 1 when gs130_init() or gs130_start() failed.
+ *
+ * error reporting: this program prints plain, unprefixed diagnostics on stderr
+ * ("init/start failed"), so a failure that happens in here does not carry the
+ * 'gs130-...: <reason>' / try '--help' contract the shell script follows. The
+ * same is true of the other sample programs, and of '--help' and argument
+ * validation: those live in the gs130 script, not in the samples.
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
