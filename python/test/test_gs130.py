@@ -2,7 +2,7 @@
 
 Usage on the board:
 
-    python3 test_gs130.py RDKX5 GS130WI resize 640 480 30 200
+    python3 test_gs130.py GS130WI resize 640 480 30 200
 
 It walks the public API once and prints what it finds: configuration, device
 identity, calibration, extrinsics, and then a short capture run that saves the
@@ -227,16 +227,15 @@ def capture_imu(device):
 
 
 def main():
-    if len(sys.argv) != 8:
-        print("usage: test_gs130.py PLATFORM DEVICE MODE WIDTH HEIGHT FPS ODR")
+    if len(sys.argv) != 7:
+        print("usage: test_gs130.py DEVICE MODE WIDTH HEIGHT FPS ODR")
         return 2
 
-    platform, device_name, mode_name = sys.argv[1:4]
-    width, height, fps, odr = (int(value) for value in sys.argv[4:8])
+    device_name, mode_name = sys.argv[1:3]
+    width, height, fps, odr = (int(value) for value in sys.argv[3:7])
     mode = mode_from_text(mode_name)
 
     section("Configuration")
-    print("platform:", platform)
     print("device:", device_name)
     print("mode:", mode_name)
     print("size: %d x %d" % (width, height))
@@ -245,7 +244,7 @@ def main():
     print("python package:", gs130.__version__)
     print("libgs130:", gs130.library_version(), "(%s)" % gs130.library_platform())
 
-    config = gs130.preset(platform, device_name, mode, width, height, fps, odr)
+    config = gs130.preset(device_name, mode, width, height, fps, odr)
 
     with gs130.Device(config) as dev:
         section("Device")

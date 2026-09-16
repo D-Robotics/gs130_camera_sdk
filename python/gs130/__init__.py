@@ -5,7 +5,7 @@ Typical use::
     import gs130
 
     config = gs130.preset(
-        "RDKX5", "GS130WI", gs130.CameraMode.RESIZE, 1088, 1280, 30, 200
+        "GS130WI", gs130.CameraMode.RESIZE, 1088, 1280, 30, 200
     )
     with gs130.Device(config) as dev:
         dev.start()

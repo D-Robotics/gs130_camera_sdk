@@ -10,6 +10,7 @@ zeroed ``depth = 0`` and ``DROP_NEW``.  The SDK accepts that because its depth
 check only applies when ``imu_config.bus_num`` is non-zero.
 """
 
+from ._abi import library_platform
 from ._config import config
 from ._types import CameraIndex, FifoMode, StereoLayout
 
@@ -92,7 +93,7 @@ PRESETS = {
 }
 
 
-def preset(platform, device, mode, width, height, fps, odr):
+def preset(device, mode, width, height, fps, odr):
     """Return a filled configuration dict for known hardware.
 
     ``mode`` is a :class:`CameraMode`, ``width`` / ``height`` the output size,
@@ -100,9 +101,12 @@ def preset(platform, device, mode, width, height, fps, odr):
     The result is an ordinary dict: adjust it before handing it to
     :class:`gs130.Device`.
 
-    Raises :class:`ValueError` for hardware without a preset, where the
-    ``GS130_CONFIG`` macro prints to stderr and exits.
+    The platform is the one ``libgs130`` was built for, as it is for the
+    ``GS130_CONFIG`` macro, so there is nothing to pass in and no way to ask
+    for another board's preset.  Raises :class:`ValueError` for hardware
+    without a preset, where the macro prints to stderr and exits.
     """
+    platform = library_platform()
     try:
         make = PRESETS[(platform, device)]
     except KeyError:

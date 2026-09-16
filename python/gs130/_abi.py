@@ -421,6 +421,6 @@ def library_version():
 
 
 def library_platform():
-    """Return the platform libgs130 was built for, such as ``"rdkx5"``."""
+    """Return the platform libgs130 was built for, such as ``"RDKX5"``."""
     value = load().gs130_platform()
     return value.decode() if value else None
