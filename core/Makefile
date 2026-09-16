@@ -272,7 +272,7 @@ MULTIARCH     := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || g
 # dpkg's word for the architecture. uname says 'aarch64' for the same machine, which
 # is not a valid .deb architecture, so map it for hosts without dpkg.
 DEB_ARCH      := $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed 's/aarch64/arm64/')
-DEB_NAME      := gs130
+DEB_NAME      := gs130-camera
 DEB_VERSION   := $(VERSION)+$(PLATFORM)
 DEB_FILE      := $(OUT_ROOT)/$(DEB_NAME)_$(DEB_VERSION)_$(DEB_ARCH).deb
 DEB_ROOT      := build/deb/$(DEB_NAME)
