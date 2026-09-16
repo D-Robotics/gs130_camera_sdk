@@ -120,16 +120,16 @@ def _imu_intrinsics(raw):
 def _calibration(raw):
     """Build :class:`Calibration` from a ``gs130_calibration_t``."""
     return Calibration(
-        _imu_intrinsics(raw.imu),
-        _camera_intrinsics(raw.camera_left),
-        _camera_intrinsics(raw.camera_right),
-        _copy(raw.camera_left_R, (3, 3)),
-        _copy(raw.camera_left_T, (3,)),
-        _copy(raw.camera_right_R, (3, 3)),
-        _copy(raw.camera_right_T, (3,)),
-        _copy(raw.imu_R, (3, 3)),
-        _copy(raw.imu_T, (3,)),
-        int(raw.camera_install_angle),
+        imu=_imu_intrinsics(raw.imu),
+        camera_left=_camera_intrinsics(raw.camera_left),
+        camera_right=_camera_intrinsics(raw.camera_right),
+        camera_left_R=_copy(raw.camera_left_R, (3, 3)),
+        camera_left_T=_copy(raw.camera_left_T, (3,)),
+        camera_right_R=_copy(raw.camera_right_R, (3, 3)),
+        camera_right_T=_copy(raw.camera_right_T, (3,)),
+        imu_R=_copy(raw.imu_R, (3, 3)),
+        imu_T=_copy(raw.imu_T, (3,)),
+        install_angle=int(raw.camera_install_angle),
     )
 
 
