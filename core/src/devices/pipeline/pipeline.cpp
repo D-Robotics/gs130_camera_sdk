@@ -6,7 +6,7 @@
  * file path as -DGS130_PLATFORM_IMPL="devices/pipeline/<platform>/<platform>.cpp".
  * Adding a platform = create src/devices/pipeline/<name>/<name>.cpp; nothing else to touch.
  *
- * This file is part of gs130_sdk (https://github.com/hachi-leaf/gs130_sdk).
+ * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
  * See the LICENSE file in the project root for the full license text.

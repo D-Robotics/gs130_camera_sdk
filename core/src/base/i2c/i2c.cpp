@@ -2,7 +2,7 @@
  * @file i2c.cpp
  * @brief I2cDevice implementation: plain i2c-dev read/write transactions.
  *
- * This file is part of gs130_sdk (https://github.com/hachi-leaf/gs130_sdk).
+ * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
  * See the LICENSE file in the project root for the full license text.
