@@ -51,13 +51,13 @@ typedef enum gs130_camera_index_e{
     GS130_CAMERA_LEFT_IDX  = 1,
 }gs130_camera_index_t;
 
-/** 双目拼接方式。 */
+/** Stereo stitching layout. */
 typedef enum gs130_stereo_layout_e{
-    GS130_STEREO_LAYOUT_NONE,          /* 不拼接（默认）：双目分离帧输出 */
-    GS130_STEREO_LAYOUT_LEFT_RIGHT,    /* 横向拼接：左目在左，右目在右 */
-    GS130_STEREO_LAYOUT_RIGHT_LEFT,    /* 横向拼接：右目在左，左目在右 */
-    GS130_STEREO_LAYOUT_TOP_BOTTOM,    /* 纵向拼接：左目在上，右目在下 */
-    GS130_STEREO_LAYOUT_BOTTOM_TOP,    /* 纵向拼接：右目在上，左目在下 */
+    GS130_STEREO_LAYOUT_NONE,          /* no stitching (default): separate per-eye frames */
+    GS130_STEREO_LAYOUT_LEFT_RIGHT,    /* horizontal: left eye on the left, right eye on the right */
+    GS130_STEREO_LAYOUT_RIGHT_LEFT,    /* horizontal: right eye on the left, left eye on the right */
+    GS130_STEREO_LAYOUT_TOP_BOTTOM,    /* vertical: left eye on top, right eye below */
+    GS130_STEREO_LAYOUT_BOTTOM_TOP,    /* vertical: right eye on top, left eye below */
 }gs130_stereo_layout_t;
 
 typedef struct gs130_camera_config_s{
@@ -74,8 +74,9 @@ typedef struct gs130_camera_config_s{
     uint32_t output_width, output_height;   /* Raw mode: must equal the sensor size */
     gs130_camera_mode_t mode;
 
-    /* 拼接输出：GS130_STEREO_LAYOUT_NONE（默认）= 双目分离帧；
-       其余值 = 相机线程直接按布局拼接填充，拼接取帧零拷贝 */
+    /* Stitched output: GS130_STEREO_LAYOUT_NONE (default) = separate per-eye frames;
+       any other value = the camera thread fills the frame in that layout directly,
+       and the stitched frame is popped zero-copy */
     gs130_stereo_layout_t stereo_layout;
 
     uint8_t bus_mipi_rx[32]; /* I2C bus -> MIPI RX map; 0xFF = not configured */
@@ -122,31 +123,32 @@ typedef struct gs130_config_s{
 typedef struct gs130_device_s gs130_device_t;
 
 /**
- * @brief SDK 版本号。
+ * @brief SDK version string.
  *
- * @return 版本字符串（如 "0.0.1"）；静态存储，无需释放。
+ * @return Version string (e.g. "0.0.1"); statically allocated, do not free.
  */
 const char *gs130_version(void);
 
 /**
- * @brief 编译平台信息字符串。
+ * @brief Compiled-in platform string.
  *
- * @return 平台名（如 "rdkx5"），来自编译期目录名；静态存储，无需释放。
+ * @return Platform name (e.g. "RDKX5"), taken from the platform directory name at
+ *         build time; statically allocated, do not free.
  */
 const char *gs130_platform(void);
 
 /**
- * @brief 创建设备句柄（空壳，需再调用 gs130_init 完成初始化）。
+ * @brief Create a device handle (an empty shell; call gs130_init to initialize it).
  *
- * @return 设备句柄；使用完毕后由 gs130_destroy() 释放。
+ * @return Device handle; release it with gs130_destroy() when done.
  */
 gs130_device_t *gs130_create();
 
 /**
- * @brief 释放设备句柄。
+ * @brief Release a device handle.
  *
- * 调用前必须先调用 gs130_deinit()（或至少 gs130_stop()），
- * 在后台线程仍在运行时销毁句柄属于未定义行为。
+ * gs130_deinit() (or at least gs130_stop()) must be called first; destroying the
+ * handle while background threads are still running is undefined behaviour.
  *
  * @param[in] dev Device handle from gs130_create().
  */
@@ -154,14 +156,16 @@ void gs130_destroy(
     gs130_device_t *dev);
 
 /**
- * @brief 初始化设备：按候选总线顺序探测 EEPROM/IMU、加载标定、配置相机与 IMU（不开流）。
+ * @brief Initialize the device: probe EEPROM/IMU along the candidate buses in order,
+ *        load the calibration, configure the camera and the IMU (streaming stays off).
  *
- * EEPROM 与 IMU 均为可选，未探测到时 SDK 降级运行；
- * 但 GS130_CAMERA_MODE_RECT 模式必须有标定，无 EEPROM 时返回 GS130_PARAM_ERROR。
- * 每个句柄只能初始化一次，重复调用返回 GS130_PARAM_ERROR。
+ * The EEPROM and the IMU are both optional and the SDK degrades gracefully when they are
+ * not detected; GS130_CAMERA_MODE_RECT does need a calibration though, and returns
+ * GS130_PARAM_ERROR without an EEPROM.  A handle can only be initialized once; a
+ * repeated call returns GS130_PARAM_ERROR.
  *
  * @param[in] dev Device handle from gs130_create().
- * @param[in] cfg 设备配置，见 gs130_config_t。
+ * @param[in] cfg Device configuration, see gs130_config_t.
  * @return err code
  */
 gs130_err_t gs130_init(
@@ -169,9 +173,9 @@ gs130_err_t gs130_init(
     const gs130_config_t *cfg);
 
 /**
- * @brief 反初始化：释放所有设备资源（仍在运行时会先调用 gs130_stop()）。
+ * @brief Deinitialize: release all device resources (calls gs130_stop() first if still running).
  *
- * 调用后句柄本身仍然有效，需由 gs130_destroy() 释放。
+ * The handle itself stays valid afterwards and must be released by gs130_destroy().
  *
  * @param[in] dev Device handle from gs130_create().
  * @return err code
@@ -180,10 +184,11 @@ gs130_err_t gs130_deinit(
     gs130_device_t *dev);
 
 /**
- * @brief 开始采集。
+ * @brief Start capture.
  *
- * 检测到 IMU 时，相机等待 IMU FSYNC 握手完成后再开流；未检测到 IMU 时直接开流。
- * 重复调用返回 GS130_PARAM_ERROR。
+ * When an IMU was detected, the camera waits for the IMU FSYNC handshake to complete
+ * before streaming; without an IMU it streams immediately.  A repeated call returns
+ * GS130_PARAM_ERROR.
  *
  * @param[in] dev Device handle from gs130_create().
  * @return err code
@@ -192,9 +197,9 @@ gs130_err_t gs130_start(
     gs130_device_t *dev);
 
 /**
- * @brief 停止采集并等待后台线程退出。
+ * @brief Stop capture and wait for the background threads to exit.
  *
- * 未在运行时调用为空操作；停止后可再次调用 gs130_start()。
+ * A no-op when not running; gs130_start() may be called again afterwards.
  *
  * @param[in] dev Device handle from gs130_create().
  */
@@ -210,26 +215,29 @@ typedef struct gs130_image_nv12_s{
 }gs130_image_nv12_t;
 
 /**
- * @brief 查询当前队列中可获取的双目同步帧对数量。
+ * @brief Query how many synchronized stereo frame pairs the queue currently holds.
  *
- * 与 gs130_get_nv12_frame 和 gs130_get_stereo_nv12_frame 配合使用：数量大于 0 时才调用获取。
+ * Use together with gs130_get_nv12_frame and gs130_get_stereo_nv12_frame: only fetch
+ * when the count is greater than 0.
  *
  * @param[in] dev Device handle from gs130_create().
- * @return 队列中可取的帧对数量。
+ * @return Number of frame pairs available in the queue.
  */
 size_t gs130_available_camera(
     gs130_device_t *dev);
 
 /**
- * @brief 分别获取左右目 NV12 同步帧。
+ * @brief Fetch the left and right NV12 frames separately.
  *
  * @param[in]  dev Device handle from gs130_create().
  * @param[out] image_left Left camera frame.
  * @param[out] image_right Right camera frame.
  * @return err code
  *
- * @note image_left / image_right 的 data 缓冲区由 SDK 使用 malloc() 分配，所有权归调用方，使用后需自行 free()。
- * @note 拼接模式（stereo_layout 不为 NONE）下不可用，返回 GS130_UNSUPPORTED。
+ * @note The data buffers of image_left / image_right are malloc()ed by the SDK and owned
+ *       by the caller, who must free() them.
+ * @note Not available in a stitching layout (stereo_layout other than NONE); returns
+ *       GS130_UNSUPPORTED.
  */
 gs130_err_t gs130_get_nv12_frame(
     gs130_device_t *dev,
@@ -237,17 +245,21 @@ gs130_err_t gs130_get_nv12_frame(
     gs130_image_nv12_t *image_right);
 
 /**
- * @brief 获取左右目拼接的 NV12 同步帧。
+ * @brief Fetch a stitched left+right NV12 frame.
  *
- * 拼接布局由 gs130_camera_config_t.stereo_layout 在 gs130_init 时定死；
- * 相机线程直接按布局填充，本函数零拷贝弹出。
+ * The stitching layout is fixed by gs130_camera_config_t.stereo_layout at gs130_init
+ * time; the camera thread fills the frame in that layout and this function pops it
+ * zero-copy.
  *
  * @param[in]  dev Device handle from gs130_create().
- * @param[out] image 拼接后的单帧 NV12：横向拼接宽度翻倍，纵向拼接高度翻倍。
+ * @param[out] image Single stitched NV12 frame: a horizontal stitch doubles the width,
+ *                   a vertical stitch doubles the height.
  * @return err code
  *
- * @note image 的 data 缓冲区由 SDK 使用 malloc() 分配，所有权归调用方，使用后需自行 free()。
- * @note 仅当 stereo_layout 不为 GS130_STEREO_LAYOUT_NONE 时可用，否则返回 GS130_UNSUPPORTED。
+ * @note The data buffer of image is malloc()ed by the SDK and owned by the caller, who
+ *       must free() it.
+ * @note Only available when stereo_layout is not GS130_STEREO_LAYOUT_NONE; otherwise
+ *       returns GS130_UNSUPPORTED.
  */
 gs130_err_t gs130_get_stereo_nv12_frame(
     gs130_device_t *dev,
@@ -264,19 +276,19 @@ typedef struct gs130_imu_packet_s{
 }gs130_imu_packet_t;
 
 /**
- * @brief 查询当前队列中可获取的 IMU 数据包数量。
+ * @brief Query how many IMU packets the queue currently holds.
  *
- * 与 gs130_get_imu_packet 配合使用：数量大于 0 时才调用获取。
- * 未检测到 IMU 或 IMU 故障时返回 0。
+ * Use together with gs130_get_imu_packet: only fetch when the count is greater than 0.
+ * Returns 0 when no IMU was detected or the IMU has failed.
  *
  * @param[in] dev Device handle from gs130_create().
- * @return 队列中可取的数据包数量。
+ * @return Number of packets available in the queue.
  */
 size_t gs130_available_imu(
     gs130_device_t *dev);
 
 /**
- * @brief 获取一个 IMU 数据包
+ * @brief Fetch one IMU packet.
  *
  * @param[in]  dev Device handle from gs130_create().
  * @param[out] out IMU packet.
@@ -287,19 +299,19 @@ gs130_err_t gs130_get_imu_packet(
     gs130_imu_packet_t *out);
 
 /**
- * @brief 获取探测到的 IMU 型号名。
+ * @brief Get the model name of the detected IMU.
  *
  * @param[in] dev Device handle from gs130_create().
- * @return IMU 型号，字符串，未检测到 IMU 时返回 NULL。
+ * @return IMU model string, or NULL when no IMU was detected.
  */
 const char *gs130_get_imu_name(
     gs130_device_t *dev);
 
 /**
- * @brief 获取探测到的 IMU 详细信息（档位带宽对照等）。
+ * @brief Get detailed information about the detected IMU (setting/bandwidth tables, etc.).
  *
  * @param[in] dev Device handle from gs130_create().
- * @return IMU 信息，字符串，未检测到 IMU 时返回 NULL。
+ * @return IMU information string, or NULL when no IMU was detected.
  */
 const char *gs130_get_imu_info(
     gs130_device_t *dev);
@@ -335,10 +347,15 @@ typedef struct gs130_calibration_s{
     gs130_camera_intrinsics_t camera_right;
     gs130_camera_intrinsics_t camera_left;
 
-    /** 外参说明
-     * 1. 外参的含义为：将该设备坐标系下的点转换到参考坐标系下的旋转矩阵和位移向量，也就是参考坐标系下的绝对位姿
-     * 2. 设备初始化时会定义参考坐标系（由 eeprom 驱动程序定义），并将所有设备的外参转换为该参考坐标系下的绝对位姿
-     * 3. 开启双目立体矫正时，参考系不会变化，但外参会变成虚拟的（双目平行），所以在使用外参时要注意参考系的变化
+    /** About the extrinsics
+     * 1. An extrinsic is the rotation matrix and translation vector that map a point
+     *    from that device's frame into the reference frame, i.e. the absolute pose of
+     *    the device in the reference frame.
+     * 2. Device initialization defines the reference frame (chosen by the EEPROM driver)
+     *    and converts every device extrinsic into an absolute pose in that frame.
+     * 3. With stereo rectification enabled the reference frame does not change, but the
+     *    extrinsics become virtual (parallel stereo), so watch for the frame change when
+     *    using them.
      */
     double camera_right_R[9], camera_right_T[3];
     double camera_left_R[9], camera_left_T[3];
@@ -354,7 +371,7 @@ typedef enum gs130_reference_frame_e{
 }gs130_reference_frame_t;
 
 /**
- * @brief 获取相机内参。
+ * @brief Get the camera intrinsics.
  *
  * @param[in]  dev        Device handle from gs130_create().
  * @param[in]  cam_idx    Camera index.
@@ -367,7 +384,7 @@ gs130_err_t gs130_get_camera_intrinsics(
     gs130_camera_intrinsics_t *intrinsics);
 
 /**
- * @brief 获取 IMU 内参。
+ * @brief Get the IMU intrinsics.
  *
  * @param[in]  dev        Device handle from gs130_create().
  * @param[out] intrinsics IMU intrinsics.
@@ -378,7 +395,7 @@ gs130_err_t gs130_get_imu_intrinsics(
     gs130_imu_intrinsics_t *intrinsics);
 
 /**
- * @brief 获取指定设备之间的相对旋转矩阵。
+ * @brief Get the relative rotation matrix between two devices.
  *
  * @param[in]  dev        Device handle from gs130_create().
  * @param[in]  from_frame Source frame.
@@ -386,8 +403,10 @@ gs130_err_t gs130_get_imu_intrinsics(
  * @param[out] R          Rotation matrix, row-major 3x3 (9 doubles).
  * @return err code
  *
- * @note 当 from_frame == to_frame 时，理论上会返回单位矩阵，但函数内部还是会进行矩阵运算，所以返回的单位阵可能有精度差异。
- * @note 输出 R 矩阵的含义为：将 from_frame 坐标系下的点转换到 to_frame 坐标系下的旋转矩阵，也就是以 to_frame 为参考系时 from_frame 的旋转。
+ * @note With from_frame == to_frame the identity matrix is expected, but the function
+ *       still runs the matrix math, so the returned identity may differ in precision.
+ * @note R maps a point from the from_frame frame into the to_frame frame, i.e. the
+ *       rotation of from_frame as seen from to_frame.
  */
 gs130_err_t gs130_get_relative_R(
     gs130_device_t *dev,
@@ -396,7 +415,7 @@ gs130_err_t gs130_get_relative_R(
     double *R);
 
 /**
- * @brief 获取指定设备之间的相对平移向量。
+ * @brief Get the relative translation vector between two devices.
  *
  * @param[in]  dev        Device handle from gs130_create().
  * @param[in]  from_frame Source frame.
@@ -404,8 +423,10 @@ gs130_err_t gs130_get_relative_R(
  * @param[out] T          Translation vector (3 doubles).
  * @return err code
  *
- * @note 当 from_frame == to_frame 时，理论上会返回零向量，但函数内部还是会进行矩阵运算，所以返回的零向量可能有精度差异。
- * @note 输出 T 向量的含义为：将 from_frame 坐标系下的点转换到 to_frame 坐标系下的平移向量，也就是以 to_frame 为参考系时 from_frame 的坐标。
+ * @note With from_frame == to_frame the zero vector is expected, but the function still
+ *       runs the matrix math, so the returned zero vector may differ in precision.
+ * @note T maps a point from the from_frame frame into the to_frame frame, i.e. the
+ *       position of from_frame as seen from to_frame.
  */
 gs130_err_t gs130_get_relative_T(
     gs130_device_t *dev,
@@ -414,31 +435,37 @@ gs130_err_t gs130_get_relative_T(
     double *T);
 
 /**
- * @brief 获取完整双目（IMU）标定参数
+ * @brief Get the complete stereo (and IMU) calibration.
  *
  * @param[in]  dev         Device handle from gs130_create().
- * @param[out] calibration 双目（IMU）标定参数结构体
+ * @param[out] calibration Stereo (and IMU) calibration structure.
  * @return err code
  *
- * @note 注意不要混淆 gs130_calibration_t 中的外参含义，参考结构体定义处。
+ * @note Do not confuse the meaning of the extrinsics in gs130_calibration_t; see the
+ *       structure definition.
  */
 gs130_err_t gs130_get_calibration(
     gs130_device_t *dev,
     gs130_calibration_t *calibration);
 
 /**
- * @brief 变换设备的参考系
+ * @brief Change the reference frame of the devices.
  *
- * 将指定的设备位姿变换为指定值，同时移动所有设备位姿，使得其他设备的位姿相对于该设备保持不变。
+ * Sets the given device's pose to the given value and moves every device pose along with
+ * it, so the other devices keep their pose relative to that device.
  *
  * @param[in] dev       Device handle from gs130_create().
- * @param[in] ref_frame 基准设备
- * @param[in] ref_R     基准设备的旋转矩阵 (9 doubles)
- * @param[in] ref_T     基准设备的平移向量 (3 doubles)
+ * @param[in] ref_frame Reference device.
+ * @param[in] ref_R     Rotation matrix of the reference device (9 doubles).
+ * @param[in] ref_T     Translation vector of the reference device (3 doubles).
  * @return err code
  *
- * @note 本函数会修改设备内部保存的标定数据，后续 gs130_get_calibration / gs130_get_relative_R / gs130_get_relative_T 的返回值都会随之改变。
- * @note 仅允许在 gs130_init() 之后调用：init 会从 EEPROM 重新加载标定，此前的修改会被覆盖。本函数只修改标定数据，不会重新触发立体矫正计算。
+ * @note This function modifies the calibration stored inside the device, so later
+ *       gs130_get_calibration / gs130_get_relative_R / gs130_get_relative_T results
+ *       change accordingly.
+ * @note Only valid after gs130_init(): init reloads the calibration from the EEPROM and
+ *       overwrites any earlier change.  This function only changes the calibration data;
+ *       it does not recompute the stereo rectification.
  */
 gs130_err_t gs130_convert_calibration(
     gs130_device_t *dev,
@@ -447,19 +474,19 @@ gs130_err_t gs130_convert_calibration(
     const double ref_T[3]);
 
 /**
- * @brief 获取探测到的 EEPROM 头声明
+ * @brief Get the detected EEPROM header declaration.
  *
  * @param[in] dev Device handle from gs130_create().
- * @return EEPROM 头，字符串；未检测到 EEPROM 时返回 NULL。
+ * @return EEPROM header string, or NULL when no EEPROM was detected.
  */
 const char *gs130_get_eeprom_name(
     gs130_device_t *dev);
 
 /**
- * @brief 获取探测到的 EEPROM 详细信息（厂商、版本、畸变模型等）。
+ * @brief Get detailed information about the detected EEPROM (vendor, version, distortion model, etc.).
  *
  * @param[in] dev Device handle from gs130_create().
- * @return EEPROM 信息，字符串，未检测到 EEPROM 时返回 NULL。
+ * @return EEPROM information string, or NULL when no EEPROM was detected.
  */
 const char *gs130_get_eeprom_info(
     gs130_device_t *dev);

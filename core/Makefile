@@ -1,6 +1,6 @@
 # GS130 SDK - core library, samples and tools
 #
-#   make                      build everything for the default platform (rdkx5),
+#   make                      build everything for the default platform (RDKX5),
 #                             including the .deb package
 #   make <platform>           build everything for a platform
 #                             (a directory name under src/devices/pipeline/)
@@ -11,6 +11,9 @@
 #   make clean                remove build/ and out/
 #
 # 'make -j8' is safe and much faster on the X5 (8 cores: ~15 s instead of ~40 s).
+#
+# Compiling first prints what is being built and asks for confirmation; the question
+# is skipped when stdin is not a terminal, and GS130_NO_CONFIRM=1 skips it explicitly.
 #
 # Layout: objects and their .d files in build/<platform>/,
 #         library and binaries in out/<platform>/,
@@ -35,14 +38,14 @@ HBN_LIBS    := -lvpf -lhbmem -lcam
 
 # ---- Platform ----
 # Available platforms = subdirectory names under src/devices/pipeline/.
-# 'make <platform>' builds for it; a bare 'make' defaults to rdkx5.
+# 'make <platform>' builds for it; a bare 'make' defaults to RDKX5.
 PLATFORMS := $(patsubst src/devices/pipeline/%/,%,$(wildcard src/devices/pipeline/*/))
 
 GOAL := $(firstword $(MAKECMDGOALS))
 ifneq ($(filter $(GOAL),$(PLATFORMS)),)
 PLATFORM := $(GOAL)
 endif
-PLATFORM ?= rdkx5
+PLATFORM ?= RDKX5
 
 # the platform backend .cpp is #included by path (not compiled standalone)
 PLATFORM_IMPL = -DGS130_PLATFORM_IMPL='"devices/pipeline/$(PLATFORM)/$(PLATFORM).cpp"'
@@ -96,7 +99,7 @@ LIBS     = $(HBN_LIBS) $(GLIBC_LIBS) $(OPENCV_LIBS) $(ZLIB_STATIC) $(TBB_LIB)
 to_obj = $(patsubst %.cpp,build/$(PLATFORM)/%.o,$(patsubst %.c,build/$(PLATFORM)/%.o,$1))
 
 # auto-discovered.
-# NOTE: a platform .cpp under pipeline/<platform>/ (e.g. rdkx5.cpp) is #included by
+# NOTE: a platform .cpp under pipeline/<platform>/ (e.g. RDKX5.cpp) is #included by
 #       pipeline.cpp (single-TU dispatch), so it must NOT be compiled as a separate object.
 #       The .c node files in those dirs ARE compiled normally.
 C_SRCS   := $(wildcard src/devices/pipeline/$(PLATFORM)/*.c)
@@ -112,15 +115,62 @@ LIB_FULL     = $(OUT_DIR)/libgs130.so.$(VERSION)
 LIB_SO_MAJOR = $(OUT_DIR)/libgs130.so.$(VERSION_MAJOR)
 LIB_SHARED   = $(OUT_DIR)/libgs130.so
 
+# ---- Confirmation ----
+# Compiling asks once for confirmation, after saying what is being built.  The
+# question is skipped when stdin is not a terminal, so scripted and CI builds never
+# block, and GS130_NO_CONFIRM=1 skips it in an interactive shell too.  'make -n' and
+# 'make -q' never run recipes, so the prerequisite is dropped there to keep a dry run
+# readable.
+#
+# The object rules carry it as an order-only prerequisite as well as the named
+# targets below: under 'make -j8' make starts every prerequisite of a target at once,
+# so without that the objects would compile while the question is still on screen.
+# Order-only ('|') and not a plain prerequisite, so that a phony target -- which is
+# always considered updated -- does not force a rebuild of every object on every run.
+
+CONFIRM := $(if $(filter n q,$(MAKEFLAGS)),,confirm)
+
+.PHONY: confirm
+confirm:
+	@if [ ! -t 0 ] || [ -n "$$GS130_NO_CONFIRM" ]; then exit 0; fi; \
+	if [ -t 2 ] && [ -z "$$NO_COLOR" ]; then \
+	    B="$$(printf '\033[1m')"; D="$$(printf '\033[2m')"; \
+	    C="$$(printf '\033[36m')"; Y="$$(printf '\033[33m')"; \
+	    R="$$(printf '\033[0m')"; \
+	else \
+	    B=""; D=""; C=""; Y=""; R=""; \
+	fi; \
+	L="$$(printf '─%.0s' $$(seq 1 62))"; \
+	{ \
+	    printf '\n  %s%s%s\n' "$$D" "$$L" "$$R"; \
+	    printf '    %sGS130 Camera SDK Core%s\n' "$$B" "$$R"; \
+	    printf '      %splatform%s   %s%s%s\n' "$$D" "$$R" "$$C" "$(PLATFORM)" "$$R"; \
+	    printf '      %sversion%s    %s%s%s\n' "$$D" "$$R" "$$C" "$(VERSION)" "$$R"; \
+	    printf '  %s%s%s\n\n' "$$D" "$$L" "$$R"; \
+	    printf '    %sCheck that the build platform matches the platform you will run on.%s\n\n' \
+	        "$$Y" "$$R"; \
+	    printf '    %sBuild?%s [Y/n] ' "$$B" "$$R"; \
+	} >&2; \
+	read -r a || exit 1; \
+	printf '\n' >&2; \
+	case "$$a" in \
+	    ""|[Yy]|[Yy][Ee][Ss]) ;; \
+	    *) printf '  aborted, nothing was built.\n\n' >&2; exit 1 ;; \
+	esac
+
 # ---- Targets ----
+
+# make takes the first target in the file as its default goal, and the confirmation
+# target above is defined before this one, so name the intended default explicitly.
+.DEFAULT_GOAL := all
 
 # 'deb' is named rather than $(DEB_FILE) so this line does not depend on variables
 # that are defined further down; the package rule itself lists its prerequisites.
-all: lib samples tools deb
+all: $(CONFIRM) lib samples tools deb
 
-lib: $(LIB_STATIC) $(LIB_FULL)
+lib: $(CONFIRM) $(LIB_STATIC) $(LIB_FULL)
 
-# each platform directory name is itself a build target: 'make rdkx5' etc.
+# each platform directory name is itself a build target: 'make RDKX5' etc.
 .PHONY: $(PLATFORMS)
 $(PLATFORMS): all
 
@@ -131,12 +181,12 @@ SAMPLE_SRCS := $(wildcard samples/*.c)
 SAMPLE_BINS := $(patsubst samples/%.c,$(OUT_DIR)/%,$(SAMPLE_SRCS))
 SAMPLE_OBJS := $(patsubst samples/%.c,build/$(PLATFORM)/%.o,$(SAMPLE_SRCS))
 
-samples: $(SAMPLE_BINS) $(OUT_DIR)/gs130
+samples: $(CONFIRM) $(SAMPLE_BINS) $(OUT_DIR)/gs130
 
 # Static pattern rule: these objects are explicit targets, not intermediates made by
 # a pattern rule. make would otherwise treat an object that is only ever a prerequisite
 # as an intermediate file and drop it, forcing a rebuild on every run.
-$(SAMPLE_OBJS): build/$(PLATFORM)/%.o: samples/%.c
+$(SAMPLE_OBJS): build/$(PLATFORM)/%.o: samples/%.c | $(CONFIRM)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -152,9 +202,9 @@ TOOL_SRCS := $(wildcard src/tools/*.cpp)
 TOOL_BINS := $(patsubst src/tools/%.cpp,$(OUT_DIR)/%,$(TOOL_SRCS))
 TOOL_OBJS := $(patsubst src/tools/%.cpp,build/$(PLATFORM)/%.o,$(TOOL_SRCS))
 
-tools: $(TOOL_BINS)
+tools: $(CONFIRM) $(TOOL_BINS)
 
-$(TOOL_OBJS): build/$(PLATFORM)/%.o: src/tools/%.cpp
+$(TOOL_OBJS): build/$(PLATFORM)/%.o: src/tools/%.cpp | $(CONFIRM)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -185,11 +235,11 @@ $(LIB_FULL): $(OBJS)
 
 # ---- Rules ----
 
-build/$(PLATFORM)/%.o: %.c
+build/$(PLATFORM)/%.o: %.c | $(CONFIRM)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-build/$(PLATFORM)/%.o: %.cpp
+build/$(PLATFORM)/%.o: %.cpp | $(CONFIRM)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -216,7 +266,7 @@ clean:
 # the build needs no debhelper/fakeroot and no network.
 # The platform is compiled into the library, so it rides in the version and not in the
 # package name: gs130_<version>+<platform>_<arch>.deb. A repack that does not change the
-# version appends a counter to the platform label, e.g. 0.0.1+rdkx5.1.
+# version appends a counter to the platform label, e.g. 0.0.1+RDKX5.
 
 MULTIARCH     := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine)
 # dpkg's word for the architecture. uname says 'aarch64' for the same machine, which
@@ -231,7 +281,7 @@ DEB_MAINTAINER ?= hachi_leaf <xiaoye.zhang@d-robotics.cc>
 # 0.5 s instead of 13 s, for 8% more package size. Since a plain 'make' packs as well,
 # that difference would otherwise show up on every build.
 
-deb: $(DEB_FILE)
+deb: $(CONFIRM) $(DEB_FILE)
 
 $(DEB_FILE): $(LIB_STATIC) $(LIB_FULL) $(SAMPLE_BINS) $(TOOL_BINS) $(OUT_DIR)/gs130 \
               $(VERSION_FILE)

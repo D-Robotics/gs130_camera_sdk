@@ -1,5 +1,5 @@
 /**
- * @file rdkx5.h
+ * @file RDKX5.h
  * @brief RDK X5 platform skeleton: node interfaces. No shared context; each node takes the resources it needs.
  *
  * @note TODO: Simplify internal encapsulation and boost reusability

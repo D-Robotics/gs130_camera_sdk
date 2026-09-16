@@ -13,7 +13,9 @@
 #ifndef GS130_DEFINE_H
 #define GS130_DEFINE_H
 
-#define GS130_CONFIG(platform, device, mode, w, h, fps, odr) \
+#define GS130_CONFIG(device, mode, w, h, fps, odr) GS130_CONFIG_PLATFORM(gs130_platform(), device, mode, w, h, fps, odr)
+
+#define GS130_CONFIG_PLATFORM(platform, device, mode, w, h, fps, odr) \
     strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130WI") == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130WI((mode), (w), (h), (fps), (odr)) : \
     strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W")  == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W((mode), (w), (h), (fps), (odr))  : \
     (fprintf(stderr, "unsupported platform/device: %s %s\n", (platform), (device)), exit(1), (gs130_config_t){0})

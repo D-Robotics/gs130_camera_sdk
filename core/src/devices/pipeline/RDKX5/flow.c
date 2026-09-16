@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: MIT
  * See the LICENSE file in the project root for the full license text.
  */
-#include "rdkx5.h"
+#include "RDKX5.h"
 
 #include <string.h>
 

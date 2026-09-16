@@ -15,20 +15,19 @@
 
 int main(int argc, char **argv)
 {
-    if(argc < 8)return 1;
-    const char *platform = argv[1];
-    const char *device   = argv[2];
-    const char *mode_s   = argv[3];
-    int w   = atoi(argv[4]);
-    int h   = atoi(argv[5]);
-    int fps = atoi(argv[6]);
-    int odr = atoi(argv[7]);
+    if(argc < 7)return 1;
+    const char *device   = argv[1];
+    const char *mode_s   = argv[2];
+    int w   = atoi(argv[3]);
+    int h   = atoi(argv[4]);
+    int fps = atoi(argv[5]);
+    int odr = atoi(argv[6]);
 
     gs130_camera_mode_t mode = GS130_CAMERA_MODE_RAW;
     if(!strcmp(mode_s, "resize"))     mode = GS130_CAMERA_MODE_RESIZE;
     else if(!strcmp(mode_s, "rect"))  mode = GS130_CAMERA_MODE_RECT;
 
-    gs130_config_t cfg = GS130_CONFIG(platform, device, mode, w, h, fps, odr);
+    gs130_config_t cfg = GS130_CONFIG(device, mode, w, h, fps, odr);
     gs130_device_t *dev = gs130_create();
     if(gs130_init(dev, &cfg) != GS130_OK){ fprintf(stderr, "init failed\n"); gs130_destroy(dev); return 1; }
 

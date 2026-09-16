@@ -8,7 +8,7 @@
  * See the LICENSE file in the project root for the full license text.
  */
 #define _DEFAULT_SOURCE
-#include "rdkx5.h"
+#include "RDKX5.h"
 
 #include <stdio.h>
 #include <unistd.h>

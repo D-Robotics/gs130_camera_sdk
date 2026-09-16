@@ -5,7 +5,7 @@
 #   gs130 help
 #   gs130 version
 #   gs130 detect imu|eeprom|camera -b <bus...> [-a <addr...>]
-#   gs130 shell -p <platform> -d <device> -m <mode> -w <W> -h <H> -f <fps> -o <odr>
+#   gs130 shell -d <device> [-m <mode>] [-w <W>] [-h <H>] [-f <fps>] [-o <odr>]
 #
 # internal commands, run inside `gs130 shell`, which locks the device config once:
 #   help, imu-info, eeprom-info, calib-export <dir>, run, rec, exit
@@ -55,13 +55,15 @@ help_requested() {
 flag_help() {
     cat <<'EOF'
 device config:
-  -p <platform>   target platform              RDKX5 | RDKS100 | RDKS600
-  -d <device>     device model                 GS130WI | GS130W
+  -d <device>     device model, required       GS130WI | GS130W
   -m <mode>       pipeline mode                raw | resize | rect
   -w <width>      output width, in pixels
   -h <height>     output height, in pixels
   -f <fps>        camera frame rate
   -o <odr>        IMU output data rate, in Hz
+
+only -d is required; the rest default to
+  -m rect -w 1088 -h 1280 -f 30 -o 200
 EOF
 }
 
@@ -91,7 +93,8 @@ detect options:
 
 examples:
   gs130 detect imu -b 6
-  gs130 shell -p RDKX5 -d GS130WI -m raw -w 1088 -h 1280 -f 30 -o 200
+  gs130 shell -d GS130WI
+  gs130 shell -d GS130WI -m raw -w 1088 -h 1280 -f 30 -o 200
 
 run '<command> --help' for the details of one command.
 EOF
@@ -123,7 +126,7 @@ EOF
 
 shell_usage() {
     cat <<'EOF'
-usage: gs130 shell -p <platform> -d <device> -m <mode> -w <W> -h <H> -f <fps> -o <odr>
+usage: gs130 shell -d <device> [-m <mode>] [-w <W>] [-h <H>] [-f <fps>] [-o <odr>]
 
 Locks the device config once, then runs the SDK commands interactively.
 
@@ -132,7 +135,8 @@ EOF
     cat <<'EOF'
 
 example:
-  gs130 shell -p RDKX5 -d GS130WI -m raw -w 1088 -h 1280 -f 30 -o 200
+  gs130 shell -d GS130WI
+  gs130 shell -d GS130WI -m raw -w 1088 -h 1280 -f 30 -o 200
 
 inside the shell, run 'help' for the commands.
 EOF
@@ -293,27 +297,30 @@ parse_rec_args() {
 }
 
 # turn the shared device-config flags into CFG, the positional order the samples
-# expect: platform device mode width height fps odr
+# expect: device mode width height fps odr
 parse_config() {
-    local v
+    DEVICE=""
+    MODE=rect
+    WIDTH=1088
+    HEIGHT=1280
+    FPS=30
+    ODR=200
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            -p|-d|-m|-w|-h|-f|-o)
+            -d|-m|-w|-h|-f|-o)
                 [ $# -ge 2 ] || die "option $1 needs a value"
                 case "$1" in
-                    -p) PLATFORM=$2 ;; -d) DEVICE=$2 ;; -m) MODE=$2 ;;
-                    -w) WIDTH=$2 ;;    -h) HEIGHT=$2 ;; -f) FPS=$2 ;; -o) ODR=$2 ;;
+                    -d) DEVICE=$2 ;; -m) MODE=$2 ;;
+                    -w) WIDTH=$2 ;;  -h) HEIGHT=$2 ;; -f) FPS=$2 ;; -o) ODR=$2 ;;
                 esac
                 shift 2 ;;
             *) die "unknown option: $1" ;;
         esac
     done
 
-    for v in "$PLATFORM" "$DEVICE" "$MODE" "$WIDTH" "$HEIGHT" "$FPS" "$ODR"; do
-        [ -n "$v" ] || die "-p -d -m -w -h -f -o are all required"
-    done
-    CFG="$PLATFORM $DEVICE $MODE $WIDTH $HEIGHT $FPS $ODR"
+    [ -n "$DEVICE" ] || die "-d <device> is required"
+    CFG="$DEVICE $MODE $WIDTH $HEIGHT $FPS $ODR"
 }
 
 # ---- dispatch ----
@@ -341,7 +348,7 @@ case "$1" in
         shift
         parse_config "$@"
         echo "${C_DIM}==================================================${C_OFF}"
-        echo "  ${C_TITLE}gs130 shell${C_OFF}  [$PLATFORM / $DEVICE]"
+        echo "  ${C_TITLE}gs130 shell${C_OFF}  [$DEVICE]"
         echo "  mode=$MODE   size=${WIDTH}x${HEIGHT}   fps=$FPS   odr=${ODR}Hz"
         echo "  type 'help' for commands, 'exit' to quit"
         echo "${C_DIM}==================================================${C_OFF}"

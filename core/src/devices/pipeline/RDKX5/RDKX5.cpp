@@ -1,5 +1,5 @@
 /**
- * @file rdkx5.cpp
+ * @file RDKX5.cpp
  * @brief RDK X5 pipeline: camera probe/init, VIN-ISP-VSE/GDC flow setup, frame fetch.
  *
  * This file is part of gs130_sdk (https://github.com/hachi-leaf/gs130_sdk).
@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: MIT
  * See the LICENSE file in the project root for the full license text.
  */
-#include "devices/pipeline/rdkx5/rdkx5.h"
+#include "devices/pipeline/RDKX5/RDKX5.h"
 
 #include "devices/pipeline/pipeline.hpp"
 

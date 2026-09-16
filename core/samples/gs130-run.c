@@ -33,15 +33,15 @@ static void print_block(uint64_t cam_idx, uint64_t imu_idx, double fps, double o
 
 int main(int argc, char **argv)
 {
-    if(argc < 8)return 1;
+    if(argc < 7)return 1;
     signal(SIGINT, on_sigint);
 
-    gs130_camera_mode_t mode = !strcmp(argv[3], "rect")   ? GS130_CAMERA_MODE_RECT :
-                               !strcmp(argv[3], "resize") ? GS130_CAMERA_MODE_RESIZE :
+    gs130_camera_mode_t mode = !strcmp(argv[2], "rect")   ? GS130_CAMERA_MODE_RECT :
+                               !strcmp(argv[2], "resize") ? GS130_CAMERA_MODE_RESIZE :
                                GS130_CAMERA_MODE_RAW;
 
     gs130_config_t cfg = GS130_CONFIG(
-        argv[1], argv[2], mode, atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), atoi(argv[7]));
+        argv[1], mode, atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), atoi(argv[6]));
 
     /* Create Device Handle */
     gs130_device_t *dev = gs130_create();

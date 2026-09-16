@@ -23,14 +23,14 @@ static char *imu_yaml(const gs130_calibration_t *cal, int odr);
 
 int main(int argc, char **argv)
 {
-    if(argc < 9)return 1;
+    if(argc < 8)return 1;
 
-    gs130_camera_mode_t mode = !strcmp(argv[4], "rect")   ? GS130_CAMERA_MODE_RECT :
-                               !strcmp(argv[4], "resize") ? GS130_CAMERA_MODE_RESIZE :
+    gs130_camera_mode_t mode = !strcmp(argv[3], "rect")   ? GS130_CAMERA_MODE_RECT :
+                               !strcmp(argv[3], "resize") ? GS130_CAMERA_MODE_RESIZE :
                                GS130_CAMERA_MODE_RAW;
 
     gs130_config_t cfg = GS130_CONFIG(
-        argv[2], argv[3], mode, atoi(argv[5]), atoi(argv[6]), atoi(argv[7]), atoi(argv[8]));
+        argv[2], mode, atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), atoi(argv[7]));
 
     /* Create Device Handle */
     gs130_device_t *dev = gs130_create();
@@ -49,9 +49,9 @@ int main(int argc, char **argv)
     }
 
     /* Get stereo (and IMU) calibration datas */
-    if(strcmp(argv[4], "raw") != 0){
+    if(strcmp(argv[3], "raw") != 0){
         fprintf(stderr, "\033[33mwarning: mode is \"%s\", not \"raw\" -- the exported calibration is the "
-            "rectified/resized one, not the EEPROM's raw calibration\033[0m\n", argv[4]);
+            "rectified/resized one, not the EEPROM's raw calibration\033[0m\n", argv[3]);
     }
     char *camchain = camchain_yaml(
         dev, &cal, 
@@ -63,7 +63,7 @@ int main(int argc, char **argv)
 
     /* Get IMU intrinsics and save */
     if(gs130_get_imu_name(dev) != NULL){
-        char *imu = imu_yaml(&cal, atoi(argv[8]));
+        char *imu = imu_yaml(&cal, atoi(argv[7]));
         printf("%s", imu);
         save_yaml(argv[1], "imu.yaml", imu);
     }

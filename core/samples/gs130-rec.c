@@ -8,7 +8,7 @@
  * See the LICENSE file in the project root for the full license text.
  *
  * usage: gs130-rec <cam_from> <cam_to> <imu_from> <imu_to> <out_dir> <stitch>
- *                  <platform> <device> <mode> <w> <h> <fps> <odr>
+ *                  <device> <mode> <w> <h> <fps> <odr>
  *
  *   <cam|imu>_from/_to  half-open index range to keep, from = -1 for none
  *   out_dir             created when missing
@@ -45,7 +45,7 @@ static void save_imu(const char *dir, long from, const gs130_imu_packet_t *imu, 
 
 int main(int argc, char **argv)
 {
-    if(argc < 14)return 1;
+    if(argc < 13)return 1;
     signal(SIGINT, on_sigint);
 
     const long cam_from = atol(argv[1]), cam_to = atol(argv[2]);
@@ -78,12 +78,12 @@ int main(int argc, char **argv)
     snprintf(cam_dir, sizeof(cam_dir), "%s/cam", dir);
     if(keep_cam)mkdir_p(cam_dir);
 
-    gs130_camera_mode_t mode = !strcmp(argv[9], "rect")   ? GS130_CAMERA_MODE_RECT :
-                               !strcmp(argv[9], "resize") ? GS130_CAMERA_MODE_RESIZE :
+    gs130_camera_mode_t mode = !strcmp(argv[8], "rect")   ? GS130_CAMERA_MODE_RECT :
+                               !strcmp(argv[8], "resize") ? GS130_CAMERA_MODE_RESIZE :
                                GS130_CAMERA_MODE_RAW;
 
     gs130_config_t cfg = GS130_CONFIG(
-        argv[7], argv[8], mode, atoi(argv[10]), atoi(argv[11]), atoi(argv[12]), atoi(argv[13]));
+        argv[7], mode, atoi(argv[9]), atoi(argv[10]), atoi(argv[11]), atoi(argv[12]));
     if(stitch)cfg.camera_config.stereo_layout = GS130_STEREO_LAYOUT_LEFT_RIGHT;
 
     /* Create Device Handle */
