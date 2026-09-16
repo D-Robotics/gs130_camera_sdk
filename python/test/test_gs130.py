@@ -1,29 +1,36 @@
-"""GS130 smoke sample.
+"""GS130 hardware test.
 
-Usage on the board:
+Usage on the board, from the ``python/`` directory:
 
-    python3 test_gs130.py GS130WI resize 640 480 30 200
+    python3 test/test_gs130.py GS130WI rect 544 448 30 200
 
-It walks the public API once and prints what it finds: configuration, device
-identity, calibration, extrinsics, and then a short capture run that saves the
-frames as PNG.  It is a sample to read and eyeball, not an assertion suite.
+It runs straight from the checkout, installed or not.  It walks the public API
+once and prints what it finds: configuration, device identity, calibration,
+extrinsics, and then a short capture run that saves the frames as PNG.
 
+It drives the real camera, so this is a hardware test rather than a unit test.
 Sections that need hardware this unit may not have are skipped with a note
 rather than failing the run, so the script still reaches the camera.
 """
 
-import shutil
+import argparse
 import sys
 import time
 from pathlib import Path
 
-import cv2
-import gs130
+# Only this file's directory is on sys.path when a script is run by path, so the
+# package next to it is added explicitly; that is what keeps the sample usable
+# from a checkout that was never installed.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import cv2  # noqa: E402 - needs the path above
+import gs130  # noqa: E402 - needs the path above
 
 
 SEPARATOR = "=" * 72
 CAMERA_ROUNDS = 10
 IMU_ROUNDS = 10
+DEFAULT_OUTPUT_DIR = "gs130_images"
 
 
 def section(title):
@@ -32,16 +39,54 @@ def section(title):
     print(SEPARATOR)
 
 
-def mode_from_text(text):
-    modes = {
-        "raw": gs130.CameraMode.RAW,
-        "resize": gs130.CameraMode.RESIZE,
-        "rect": gs130.CameraMode.RECT,
-    }
-    try:
-        return modes[text.lower()]
-    except KeyError:
-        raise ValueError("mode must be raw, resize, or rect")
+MODES = {
+    "raw": gs130.CameraMode.RAW,
+    "resize": gs130.CameraMode.RESIZE,
+    "rect": gs130.CameraMode.RECT,
+}
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Walk the gs130 public API once against real hardware.",
+    )
+    parser.add_argument("device", help="camera model, GS130WI or GS130W")
+    parser.add_argument("mode", choices=sorted(MODES), help="how frames are made")
+    parser.add_argument("width", type=int, help="output width of one eye")
+    parser.add_argument("height", type=int, help="output height of one eye")
+    parser.add_argument("fps", type=int, help="camera frames per second")
+    parser.add_argument("odr", type=int, help="IMU output data rate, in Hz")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(DEFAULT_OUTPUT_DIR),
+        help="where the PNG frames are written (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="write into a non-empty output directory",
+    )
+    return parser.parse_args(argv)
+
+
+def prepare_output_dir(path, overwrite):
+    """Make the PNG directory, refusing to clobber unrelated files.
+
+    The frames are a side effect of a diagnostic run, so an existing directory
+    is only reused when it is empty or ``--overwrite`` was given; previous
+    ``*.png`` files are removed either way.
+    """
+    if path.exists() and not path.is_dir():
+        raise SystemExit("%s exists and is not a directory" % path)
+    if path.is_dir() and any(path.iterdir()) and not overwrite:
+        raise SystemExit(
+            "%s is not empty; pass --overwrite to write into it anyway" % path
+        )
+    path.mkdir(parents=True, exist_ok=True)
+    for previous in path.glob("*.png"):
+        previous.unlink()
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -226,14 +271,13 @@ def capture_imu(device):
     )
 
 
-def main():
-    if len(sys.argv) != 7:
-        print("usage: test_gs130.py DEVICE MODE WIDTH HEIGHT FPS ODR")
-        return 2
+def main(argv=None):
+    args = parse_args(sys.argv[1:] if argv is None else argv)
 
-    device_name, mode_name = sys.argv[1:3]
-    width, height, fps, odr = (int(value) for value in sys.argv[3:7])
-    mode = mode_from_text(mode_name)
+    device_name = args.device
+    mode_name = args.mode
+    width, height, fps, odr = args.width, args.height, args.fps, args.odr
+    mode = MODES[mode_name]
 
     section("Configuration")
     print("device:", device_name)
@@ -313,10 +357,7 @@ def main():
             )
 
         section("Camera")
-        output_dir = Path("gs130_images")
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        output_dir.mkdir()
+        output_dir = prepare_output_dir(args.output_dir, args.overwrite)
         print("saving PNG images to:", output_dir.resolve())
         capture_camera(dev, output_dir)
 
@@ -331,7 +372,7 @@ def main():
         print("saved PNG count:", len(list(output_dir.glob("*.png"))))
 
     print("closed after the with block:", dev.closed)
-    print("GS130 smoke test passed")
+    print("GS130 test passed")
     return 0
 
 
