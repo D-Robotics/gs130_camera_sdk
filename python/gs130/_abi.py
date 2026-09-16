@@ -24,6 +24,7 @@ from enum import IntEnum
 
 _DEFAULT = "libgs130.so"
 _library = None
+_package_version = None
 
 
 # ---------------------------------------------------------------------------
@@ -399,17 +400,27 @@ def _check_version(package, library_version):
         )
 
 
+def set_package_version(version):
+    """Record the package version checked the first time libgs130 is loaded."""
+    global _package_version
+    _package_version = version
+
+
 def load(version=None):
     """Return the process-wide libgs130 handle with all declarations applied.
 
-    ``version`` is the gs130 package version to compare the library against;
-    the check runs once, on the first load.
+    Importing :mod:`gs130` only records its package version.  The native library
+    is opened on this first real use, so enums, configuration helpers and type
+    information remain usable on a development machine without the hardware
+    runtime.  The compatibility check still runs exactly once when the library
+    is opened.
     """
     global _library
     if _library is None:
         library = _open(_resolve())
-        if version is not None:
-            _check_version(version, library.gs130_version().decode())
+        package = _package_version if version is None else version
+        if package is not None:
+            _check_version(package, library.gs130_version().decode())
         _library = library
     return _library
 

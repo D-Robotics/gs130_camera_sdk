@@ -52,8 +52,9 @@ def package_version():
 
 __version__ = package_version()
 
-# Loading here is what runs the version check; see _abi.load.
-_abi.load(__version__)
+# The native library is opened on first use, not on import; the recorded package
+# version is still checked at that point.  See _abi.load.
+_abi.set_package_version(__version__)
 
 library_version = _abi.library_version
 library_platform = _abi.library_platform
