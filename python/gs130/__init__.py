@@ -5,7 +5,7 @@ Typical use::
     import gs130
 
     config = gs130.preset(
-        "GS130WI", gs130.CameraMode.RESIZE, 1088, 1280, 30, 200
+        "GS130WI", gs130.CameraMode.RECT, 544, 448, 30, 200
     )
     with gs130.Device(config) as dev:
         dev.start()
@@ -71,6 +71,8 @@ __all__ = [
     "preset",
     "library_version",
     "library_platform",
+    "package_version",
+    "__version__",
     "ErrorCode",
     "CameraMode",
     "CameraIndex",
