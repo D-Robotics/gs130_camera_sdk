@@ -19,7 +19,7 @@ __pycache__/
 python/build/
 python/dist/
 python/*.egg-info/
-python/test/gs130_images/
+python/**/gs130_images/
 
 # ROS 2 / colcon build artifacts
 ros/build/
@@ -28,7 +28,6 @@ ros/log/
 ros2/build/
 ros2/install/
 ros2/log/
-__pycache__/
 
 # Test and tool caches
 .pytest_cache/
