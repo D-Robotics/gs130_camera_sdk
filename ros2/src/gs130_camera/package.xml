@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>gs130_camera</name>
+  <version>0.0.1</version>
+  <description>
+    Publishes the GS130 stereo camera and IMU as standard ROS 2 messages by
+    calling the SDK's C API directly.  Needs libgs130 and gs130.h from this
+    repository; neither is a rosdep key.
+  </description>
+  <maintainer email="hachi-leaf@users.noreply.github.com">hachi-leaf</maintainer>
+  <license>MIT</license>
+  <url type="repository">https://github.com/D-Robotics/gs130_camera_sdk</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>tf2_ros</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

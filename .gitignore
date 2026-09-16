@@ -25,6 +25,9 @@ python/test/gs130_images/
 ros/build/
 ros/install/
 ros/log/
+ros2/build/
+ros2/install/
+ros2/log/
 __pycache__/
 
 # Test and tool caches
