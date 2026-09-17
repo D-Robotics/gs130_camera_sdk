@@ -87,12 +87,14 @@ EOF
     cat <<'EOF'
 
 detect options:
-  -b <bus...>     I2C bus numbers to scan, e.g. -b 4 6
+  -b <bus...>     I2C buses to scan; required; GS130WI on RDK X5: -b 4 6
   -a <addr...>    I2C addresses to probe
                   defaults per target: imu 0x68 0x69, eeprom 0x50, camera 0x30 0x32
 
 examples:
-  gs130 detect imu -b 6
+  gs130 detect camera -b 4 6
+  gs130 detect imu -b 4 6
+  gs130 detect eeprom -b 4 6
   gs130 shell -d GS130WI
   gs130 shell -d GS130WI -m raw -w 1088 -h 1280 -f 30 -o 200
 
@@ -115,12 +117,14 @@ usage: gs130 detect <target> -b <bus...> [-a <addr...>]
 Scans I2C buses and addresses for devices.
 
   <target>        imu | eeprom | camera
-  -b <bus...>     I2C bus numbers to scan, e.g. -b 4 6
+  -b <bus...>     I2C buses to scan; required; GS130WI on RDK X5: -b 4 6
   -a <addr...>    I2C addresses to probe, in hex
                   defaults per target: imu 0x68 0x69, eeprom 0x50, camera 0x30 0x32
 
-example:
-  gs130 detect imu -b 6
+examples:
+  gs130 detect camera -b 4 6
+  gs130 detect imu -b 4 6
+  gs130 detect eeprom -b 4 6
 EOF
 }
 

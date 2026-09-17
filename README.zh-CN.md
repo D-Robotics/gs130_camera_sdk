@@ -103,7 +103,7 @@ gs130 工具随 Core 一同安装，示例源码保存在 [core/samples/](core/s
 ```bash
 gs130 help                       # 列出可用命令
 gs130 version                    # SDK 版本与构建平台
-gs130 detect <imu|eeprom|camera> [-b <bus...>] [-a <addr...>]
+gs130 detect <imu|eeprom|camera> -b <bus...> [-a <addr...>]
 gs130 shell -d <device> [-m <mode>] [-w <W>] [-h <H>] [-f <fps>] [-o <odr>]
 ```
 

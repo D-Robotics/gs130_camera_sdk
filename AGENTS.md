@@ -83,7 +83,7 @@ python3 test/test_gs130.py GS130WI rect 544 448 30 200 [--output-dir D] [--overw
     # skips absent hardware instead of failing
 
 core/out/<PLATFORM>/gs130-run GS130WI rect 544 448 30 200    # stream camera + IMU
-core/out/<PLATFORM>/gs130 detect imu -b 6                    # I2C probe
+core/out/<PLATFORM>/gs130 detect imu -b 4 6                  # I2C probe; verified GS130WI + RDK X5 buses, not a program default
 core/out/<PLATFORM>/gs130 shell -d GS130WI                   # interactive: imu-info|eeprom-info|calib-export|run|rec
 ```
 
