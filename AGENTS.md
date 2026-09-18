@@ -105,7 +105,7 @@ TROS launches (need `hobot_codec`, `websocket`, `hobot_stereonet`): `source /opt
 - Project is a developer preview (Alpha). Label it as such in user-facing documents.
 - Do not edit, commit, reformat or `chown` files you did not change — check `git status` first.
 - `git fetch` and compare `origin/develop` before committing or pushing; the branch is shared and has diverged before.
-- `VERSION` drives core and python; the ROS 2 version lives in `package.xml` — bump both when needed.
+- A release is exactly two edits: `VERSION` (drives core, the Python wheel and the Debian package name) and `ros2/src/gs130_camera/package.xml`. The ROS 2 version is not derived from `VERSION`; update both files in the same commit. No other tracked file carries a release version, and nothing enforces this automatically.
 - `python/setup.py` uses `python/README.md` as `long_description` when that file exists.
 - Never commit build output. `.gitignore` covers: `core/{build,out}`, `python/{build,dist,*.egg-info}`, `__pycache__`, `ros2/{build,install,log}`.
 - READMEs are bilingual and cross-linked: `README.md` (English) + `README.zh-CN.md` (Chinese). One change belongs in both.
