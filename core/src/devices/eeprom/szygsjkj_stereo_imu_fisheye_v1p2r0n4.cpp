@@ -1,5 +1,5 @@
 /**
- * @file SZYGSJKJ_stereo_imu_fisheye_v1p2r0n4.cpp
+ * @file szygsjkj_stereo_imu_fisheye_v1p2r0n4.cpp
  * @brief SZYGSJKJ stereo + IMU, fisheye, v1.2, rotation 0 deg, 4 distortion coefficients.
  *
  * This file is self-contained: header, checksum, offsets, and field widths are all local; no code is shared with other models.
