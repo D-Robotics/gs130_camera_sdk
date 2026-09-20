@@ -63,11 +63,11 @@ constexpr uint32_t kPymHwId = 0;
  * time is what the IMU pairing needs, so the other two are only fallbacks for when
  * the trigger information is missing.
  *
- * UNVERIFIED on S100: the X5 backend enables the trigger timestamp through
- * vin_node_attr.cim_attr.func.time_stamp_en, and that field does not exist in S100's
- * cim_attr, so whether trig_tv is ever populated here has not been checked. The
- * fallbacks below keep the function well defined either way, but the IMU pairing
- * should be re-checked on hardware. See requirement-analysis/jira011-g3-revision.md.
+ * S100 has no timestamp switch on the capture node: cim_func_desc_t carries no
+ * time_stamp_en / time_stamp_mode / ts_src (those exist only in X5's vin_cfg.h), and the
+ * platform's own S100 camera stack reads trig_tv with no such flag set. The preference
+ * order below is therefore unchanged from X5, only the trigger timestamp is no longer
+ * explicitly enabled anywhere.
  *
  * @param[in] info Frame information returned with the frame.
  * @return Timestamp in nanoseconds on the device clock.
