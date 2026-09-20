@@ -282,18 +282,23 @@ int gdc_open(
 /**
  * @brief Create the vflow, add and bind the nodes, and report where frames come out.
  *
- * The chain is vin -> isp -> [gdc] -> [pym]; a handle that is 0 is skipped, so Raw
- * (vin -> isp), Resize (vin -> isp -> pym) and Rect (vin -> isp -> gdc -> pym) all
- * use this one helper. The camera is attached to VIN last, once the nodes are bound.
+ * The chain is vin -> isp -> pym -> [gdc]; a handle that is 0 is skipped, so Raw
+ * (vin alone; this backend leaves the ISP out of that mode), Resize (vin -> isp -> pym)
+ * and Rect (vin -> isp -> pym -> gdc) all use this one helper. The order is the
+ * platform's: an S100 ISP hands its frame on through its online output, which the
+ * platform binds to PYM, and the GDC is always the last node. The camera is attached to
+ * VIN last, once the nodes are bound.
  *
  * @param[out] vflow      Receives the vflow handle; set to 0 when creation fails.
  * @param[in]  cam_fd     Camera handle to attach to VIN.
  * @param[in]  vin,isp,gdc,pym Vnode handles to add and bind; 0 = stage not present.
  * @param[in]  pym_chn    PYM output channel, used when @p pym is present.
- * @param[out] out_node   Receives the node producing frames: pym when present,
- *                        otherwise gdc, otherwise isp. Written on success only.
- * @param[out] out_chn    Receives the channel to read on @p out_node: pym_chn, 0 for
- *                        GDC, or 0 for the direct ISP output. Written on success only.
+ * @param[out] out_node   Receives the node producing frames: gdc when present,
+ *                        otherwise pym, otherwise isp, otherwise vin. Written on
+ *                        success only.
+ * @param[out] out_chn    Receives the channel to read on @p out_node: pym_chn for PYM
+ *                        (which publishes a frame as a group, see get_frame()), 0 for
+ *                        GDC, ISP or VIN. Written on success only.
  * @return 0 on success, -1 when a create, add, bind or attach step fails.
  */
 int vflow_build(

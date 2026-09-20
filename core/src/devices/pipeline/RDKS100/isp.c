@@ -1,14 +1,18 @@
 /**
  * @file isp.c
- * @brief isp node: offline (DDR) ISP, NV12 output.
+ * @brief isp node: online ISP, NV12 output handed straight to the next node.
  *
- * RAW10 frames arriving from VIN in DDR are processed here and handed on as NV12,
- * which is the format every later stage (GDC, PYM) and the caller's buffers use.
+ * RAW10 frames arriving from VIN are processed here and handed on as NV12, which is the
+ * format every later stage (PYM, GDC) and the caller's buffers use.
  *
  * On S100 the node is described by one isp_cfg_t wrapper (isp_attr + ichn_attr +
- * ochn_attr), and offline operation is selected on the output channel rather than
- * through an input-mode enum: stream_output_mode is disabled and axi_output_mode names
- * the frame format that leaves the ISP. There is no DDR_MODE and no FRM_FMT_NV12 here.
+ * ochn_attr), and the link to the next node is selected on the output channel rather than
+ * through an input-mode enum: stream_output_mode enables the online output and
+ * axi_output_mode is disabled. There is no DDR_MODE and no FRM_FMT_NV12 here.
+ *
+ * This backend always runs the ISP online, because Raw leaves the ISP out of the flow
+ * altogether and every mode that keeps it has a node behind it. See isp_open() for what
+ * the platform's own camera stack does and why the offline link is not an option.
  *
  * The function contract (parameters, units, ownership, return value) is documented
  * with the declaration in RDKS100.h.

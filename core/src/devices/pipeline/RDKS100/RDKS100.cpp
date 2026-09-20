@@ -5,19 +5,20 @@
  * Backend of gs130::pipeline::Pipeline for the RDK S100 / Horizon driver stack, built
  * on the node helpers declared in RDKS100.h. It implements the platform-independent
  * interface of pipeline.hpp: the constructor probes both eyes over I2C, init() builds
- * one vflow per eye (camera -> VIN -> ISP, optionally GDC and PYM), start() starts
- * both flows, get_frame() copies frames into caller buffers, and deinit() tears the
- * hardware down again.
+ * one vflow per eye (camera -> VIN -> [ISP -> PYM -> [GDC]]), start() starts both flows,
+ * get_frame() copies frames into caller buffers, and deinit() tears the hardware down
+ * again. Raw reads the capture node, Resize the PYM output and Rect the GDC behind it;
+ * vflow_build() reports which.
  *
  * The flow logic is the same as the X5 backend's; what changes is which scaling node is
- * opened (PYM instead of VSE) and the resource identifiers the ISP and PYM nodes need on
- * this generation. Those are assigned here:
+ * opened (PYM instead of VSE), the order the nodes are chained in (S100 puts the GDC
+ * last, see the scaling-geometry comment in init()), and the resource identifiers the
+ * ISP and PYM nodes need on this generation. Those are assigned here:
  *
  *   - ISP hw_id 0: the platform's camera stack uses ISP0 for a chain without YNR, which
  *     is the case here.
- *   - slot_id = eye index (0 for Right, 1 for Left): the platform allocates slots from a
- *     running counter so two pipelines never collide; fixing one slot per eye reproduces
- *     that for the two pipelines this backend creates, without carrying a counter.
+ *   - slot_id = kIspSlotBase + eye index, i.e. 4 and 5: the platform allocates slots from
+ *     a running counter that starts at 4, and starting at 0 leaves the nodes unbound.
  *   - PYM hw_id 0 and the same slot_id as the eye's ISP: the platform pairs them the same
  *     way in its own ISP-only path.
  *

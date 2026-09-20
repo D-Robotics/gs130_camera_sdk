@@ -2,11 +2,15 @@
  * @file pym.c
  * @brief pym node: aspect-preserving crop + scaling.
  *
- * S100's counterpart of the X5 VSE node. PYM is a pyramid scaler: the source layer plus
- * up to MAX_DS_NUM-1 downscaled layers can be described at once, and each enabled output
- * slot names its source layer and the region to take from it. This backend enables a
- * single slot on the source layer (ds_roi_sel 0 / ds_roi_layer 0), so the region is
- * expressed in full-resolution sensor coordinates.
+ * S100's counterpart of the X5 VSE node. PYM is a pyramid scaler: the source frame plus
+ * up to four downscaled layers (halved, quartered, ...) can be read from, and each
+ * enabled output slot names which layer it reads, the crop it takes out of that layer and
+ * the size it writes the result at. This backend enables exactly one slot, and pym_open()
+ * derives that slot's layer, crop and size from the requested output.
+ *
+ * An output smaller than the source is served from a reduced layer rather than by scaling
+ * the full-resolution one, because the node rejects a region-to-output ratio of 2x or
+ * more. The layer, its selector and the crop inside it are covered in pym_layer_pick().
  *
  * The scaling semantics are deliberately the X5 ones: aspect_roi() picks a centered crop
  * of the input with the output's aspect ratio and that crop becomes the source region, so
@@ -182,6 +186,13 @@ int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
     box->wstride_uv    = GS130_ALIGN_16(out_w);
     box->vstride       = out_h;
 
+    /*
+     * Slots 1.. are not enabled in ds_roi_en, and the node's attribute check walks the
+     * enabled slots only, so these entries are never inspected; they are filled with the
+     * reduced-layer selectors because the kernel copies the whole structure, and a slot
+     * that was ever enabled on top of this configuration must read a pyramid layer rather
+     * than the full-resolution one with no region described.
+     */
     for (uint32_t i = 1; i < MAX_DS_NUM; i++) {
         cfg.chn_ctrl.ds_roi_sel[i]   = 1;
         cfg.chn_ctrl.ds_roi_layer[i] = (uint8_t)(i - 1);
