@@ -102,10 +102,32 @@ TROS launches (need `hobot_codec`, `websocket`, `hobot_stereonet`): `source /opt
 
 - Comment/doc work: zero token changes in code. Verify, do not assume.
 - Never document unsupported capability. Implemented backends = directories under `core/src/devices/pipeline/`; anything else makes `GS130_CONFIG_PLATFORM` print and `exit(1)`. Today: RDKX5 only; S100/S600 are "in development".
-- Project is a developer preview (Alpha). Label it as such in user-facing documents.
+- Project is a developer preview (Alpha). Label it as such in user-facing documents. The
+  stage shows up as a suffix on release tags (`0.1.0-Alpha`) and not inside `VERSION`, which
+  holds three plain numbers; see the release rule below.
 - Do not edit, commit, reformat or `chown` files you did not change — check `git status` first.
 - `git fetch` and compare `origin/develop` before committing or pushing; the branch is shared and has diverged before.
-- A release is exactly two edits: `VERSION` (drives core, the Python wheel and the Debian package name) and `ros2/src/gs130_camera/package.xml`. The ROS 2 version is not derived from `VERSION`; update both files in the same commit. No other tracked file carries a release version, and nothing enforces this automatically.
+- A release is announced by the maintainer as "release x.y.z". The version number is the
+  maintainer's decision; do not propose one. Then, in order:
+  1. **While the project is Alpha or Beta, ask the maintainer which pre-release suffix the
+     version carries** (`-Alpha`, `-Beta`, or none) before touching anything. The suffix
+     belongs to the tag, not to `VERSION`. Skip the question once the project is at a
+     stable release.
+  2. Edit exactly two files: `VERSION` (drives core, the Python wheel and the Debian package
+     name) and `ros2/src/gs130_camera/package.xml`. The ROS 2 version is not derived from
+     `VERSION`; update both files in the same commit. No other tracked file carries a
+     release version, and nothing enforces this automatically.
+  3. Rebuild and confirm the new version is what the artifacts actually report.
+  4. Commit those two edits as one commit.
+  5. Merge `develop` into `main` with `--no-ff`, so the release point stays identifiable on
+     `main`. This repository's history is linear to date and this introduces the first merge
+     commits; do not fast-forward a release merge.
+  6. Tag that commit **on `main`**, using `x.y.z-Alpha` / `x.y.z-Beta` / `x.y.z`. Tags are
+     annotated, matching the existing `0.1.0-Alpha`. Never move or delete an existing tag.
+  7. Push the release commit, `main` and the tag.
+  Record the commit, the tag and the post-push check in the Jira. Two of these steps change
+  code or history elsewhere, so they need the maintainer's explicit go-ahead first: the
+  merge into `main`, and creating the tag.
 - `python/setup.py` uses `python/README.md` as `long_description` when that file exists.
 - Never commit build output. `.gitignore` covers: `core/{build,out}`, `python/{build,dist,*.egg-info}`, `__pycache__`, `ros2/{build,install,log}`.
 - READMEs are bilingual and cross-linked: `README.md` (English) + `README.zh-CN.md` (Chinese). One change belongs in both.
