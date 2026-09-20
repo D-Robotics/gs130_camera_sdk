@@ -66,7 +66,7 @@ PLATFORM_STR  = -DGS130_PLATFORM='"$(PLATFORM)"'
 # RDKS100's hbn_isp_cfg.h includes "cJSON.h" bare while the package installs it
 # under /usr/include/cjson, so that directory is needed too. Kept per platform so
 # adding one cannot shadow another's headers.
-PLATFORM_INCLUDES := $(if $(filter RDKS100,$(PLATFORM)),-I/usr/hobot/include -I/usr/include/cjson)
+PLATFORM_INCLUDES := $(if $(filter RDKS100,$(PLATFORM)), -I/usr/hobot/include -I/usr/include/cjson)
 
 # ---- Version ----
 
@@ -88,7 +88,7 @@ CXX = g++
 COMMON_FLAGS = -Wall -Wextra -O2 -g -fPIC -MMD -MP
 CFLAGS   = $(COMMON_FLAGS) -std=gnu11
 CXXFLAGS = $(COMMON_FLAGS) -std=gnu++17 $(PLATFORM_IMPL) $(VERSION_DEF) $(PLATFORM_STR)
-INCLUDES = -Iinclude -Isrc $(PLATFORM_INCLUDES) -I/usr/include/opencv4
+INCLUDES = -Iinclude -Isrc -I/usr/include/opencv4$(PLATFORM_INCLUDES)
 # Linking against the static OpenCV archives dominates every link; ld.gold links
 # these archives noticeably faster than the default ld.bfd and produces the same
 # library. Used when it is installed, otherwise the default linker is kept.
