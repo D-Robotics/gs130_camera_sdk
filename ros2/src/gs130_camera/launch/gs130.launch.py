@@ -25,7 +25,7 @@ from launch_ros.descriptions import ParameterValue
 # explicit conversion before the parameter reaches the node. The order mirrors
 # declare_parameters() in src/gs130_node.cpp.
 ARGUMENTS = (
-    ("device", "GS130WI", str, "Camera model (GS130WI or GS130W)"),
+    ("device", "GS130WI", str, "Camera model (GS130WI, GS130W or GS130W_NO_EEPROM)"),
     ("camera_mode", "rect", str, "Camera mode (raw, rect, or resize)"),
     (
         "stitch",
