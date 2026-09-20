@@ -73,10 +73,17 @@ int isp_open(hbn_vnode_handle_t *isp, uint32_t width, uint32_t height,
     cfg.ochn_attr.output_raw_level       = 0;   /* ISP_OUTPUT_RAW_LEVEL_SENSOR_DATA */
     cfg.ochn_attr.buf_num                = GS130_ISP_BUF_NUM;
 
-    /* Offline operation: nothing streams straight through to the next node, so the
-       output goes to DDR as YUV420. */
-    cfg.ochn_attr.stream_output_mode = STREAM_OUTPUT_MODE_DISABLE;
-    cfg.ochn_attr.axi_output_mode    = GS130_S100_ISP_AXI_FORMAT;
+    /*
+     * Online operation: the ISP hands its frame straight to the node behind it instead of
+     * writing it to DDR, which is the only link the platform's S100 camera stack uses
+     * between the ISP and the pipeline's scaling node. Its ISP_ONLY scene sets
+     * is_online_isp_pym = 1 whenever the sensor carries a PYM configuration, and
+     * create_isp_node() then selects STREAM_OUTPUT_MODE_ENABLE with the DDR output mode
+     * disabled. This backend never has an ISP without a node behind it -- Raw leaves the
+     * ISP out of the flow altogether -- so the online link is unconditional here.
+     */
+    cfg.ochn_attr.stream_output_mode = STREAM_OUTPUT_MODE_ENABLE;
+    cfg.ochn_attr.axi_output_mode    = AXI_OUTPUT_MODE_DISABLE;
 
     if (hbn_vnode_open(HB_ISP, hw_id, AUTO_ALLOC_ID, isp) != 0) {
         *isp = 0;
@@ -87,14 +94,10 @@ int isp_open(hbn_vnode_handle_t *isp, uint32_t width, uint32_t height,
         hbn_vnode_set_ichn_attr(*isp, 0, &cfg.ichn_attr) != 0)
         return -1;
 
-    hbn_buf_alloc_attr_t alloc = {
-        .buffers_num = GS130_ISP_BUF_NUM,
-        .is_contig = 1,
-        .flags = HB_MEM_USAGE_CPU_READ_OFTEN |
-                 HB_MEM_USAGE_CPU_WRITE_OFTEN |
-                 HB_MEM_USAGE_CACHED,
-    };
-    if (hbn_vnode_set_ochn_buf_attr(*isp, 0, &alloc) != 0)
-        return -1;
+    /*
+     * No output buffers: the platform's create_isp_node() allocates them only for the
+     * offline link (!is_online), because an online output is consumed by the next node
+     * rather than read back by this process.
+     */
     return 0;
 }

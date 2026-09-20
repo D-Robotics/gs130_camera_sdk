@@ -21,29 +21,58 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         *vflow = 0;
         return -1;
     }
+    // A handle of 0 means the stage is not part of this flow: raw output leaves the ISP
+    // out and reads the capture node instead, so it is absent here.
     if (hbn_vflow_add_vnode(*vflow, vin) != 0 ||
-        hbn_vflow_add_vnode(*vflow, isp) != 0 ||
+        (isp != 0 && hbn_vflow_add_vnode(*vflow, isp) != 0) ||
         (gdc != 0 && hbn_vflow_add_vnode(*vflow, gdc) != 0) ||
         (pym != 0 && hbn_vflow_add_vnode(*vflow, pym) != 0))
         return -1;
 
-    // vin -> isp -> [gdc] -> [pym]
-    if(hbn_vflow_bind_vnode(*vflow, vin, 0, isp, 0) != 0)return -1;
-    if(gdc != 0 && hbn_vflow_bind_vnode(*vflow, isp, 0, gdc, 0) != 0)return -1;
-    if(pym != 0){
-        const hbn_vnode_handle_t src = (gdc != 0) ? gdc : isp;
-        if(hbn_vflow_bind_vnode(*vflow, src, 0, pym, 0) != 0) return -1;
-        *out_node = pym;
-        *out_chn  = pym_chn;
+    /*
+     * vin -> isp -> pym -> [gdc], or vin alone when there is no ISP.
+     *
+     * The order is the platform's: an S100 ISP hands its frame on through its online
+     * output, and the platform's own camera stack binds that output to PYM and PYM to the
+     * GDC -- never the ISP to the GDC. The GDC is therefore the last node and reads what
+     * PYM wrote, at the size PYM wrote it.
+     */
+    if(isp != 0 && hbn_vflow_bind_vnode(*vflow, vin, 0, isp, 0) != 0)return -1;
+    if(pym != 0 && isp != 0){
+        /*
+         * Channel 1 is the ISP's online output; channel 0 is the DDR output of the offline
+         * link, which this backend does not use (see isp_open). The platform binds the same
+         * channel -- its ISP-only scene sets is_online_isp_pym = 1 and passes that value as
+         * the source channel -- and binding channel 0 leaves the flow unable to start. The
+         * node behind the ISP is bound on its input channel 0 in every case.
+         */
+        if(hbn_vflow_bind_vnode(*vflow, isp, GS130_ISP_STREAM_CHN, pym, 0) != 0) return -1;
+        if(gdc != 0){
+            if(hbn_vflow_bind_vnode(*vflow, pym, pym_chn, gdc, 0) != 0) return -1;
+            *out_node = gdc;
+            *out_chn  = 0;
+        }
+        else{
+            *out_node = pym;
+            *out_chn  = pym_chn;
+        }
     }
     else if(gdc != 0){
         *out_node = gdc;
         *out_chn  = 0;
     }
-    else{
+    else if(isp != 0){
         // Direct ISP output. S100 has no ISP_MAIN_FRAME symbol; the ISP's single
         // output channel is channel 0, the same channel the configuration used.
         *out_node = isp;
+        *out_chn  = 0;
+    }
+    else{
+        // No ISP in the flow, so the frame comes from the capture node itself. This is
+        // the raw path: the caller receives the sensor's own frame, and the platform's
+        // S100 stack likewise has no scene that reads an ISP output with nothing behind
+        // it -- every one of its scenes ends at a pym node.
+        *out_node = vin;
         *out_chn  = 0;
     }
 

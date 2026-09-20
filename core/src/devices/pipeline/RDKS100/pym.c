@@ -43,6 +43,43 @@
 #define GS130_PYM_FB_BUF_NUM     2
 #define GS130_PYM_BUF_NUM        3   /* buffers the caller's output channel is given */
 
+/* The base layer a PYM output smaller than the source has to be read from: the source
+ * halved, quartered, ... down to a sixteenth, each rounded down to an even size, and the
+ * smallest of them that is still at least as large as the requested output.
+ *
+ * The selector/layer pair does NOT name that halving count directly. Selector 0 is the
+ * full-resolution layer on its own and its layer index is 0; selector 1 holds the reduced
+ * layers and its layer index counts from zero at the HALF-resolution layer. So an output
+ * needing `depth` halvings is named by selector 1 with layer `depth - 1`, and only a
+ * full-resolution output uses selector 0. The node's attribute check verifies the region
+ * against `src >> (layer + 1)` for selector 1, which is exactly the named layer's size;
+ * naming layer `depth` asks for a layer one step too small, the region does not fit it,
+ * and the whole configuration is rejected with HBN_STATUS_PYM_INVALID_PARAMETER. Both the
+ * node's disassembled check and the platform's S100 camera stack
+ * (check_pym_config/create_pym_node in hobot_mipi_cam) agree on this numbering.
+ *
+ * Writes that layer's size through bl_w/bl_h and its selector/layer pair through
+ * sel/layer. */
+static void pym_layer_pick(uint32_t in_w, uint32_t in_h,
+                           uint32_t out_w, uint32_t out_h,
+                           uint32_t *bl_w, uint32_t *bl_h,
+                           uint32_t *sel, uint32_t *layer)
+{
+    uint32_t depth = 0;
+    uint32_t w = in_w, h = in_h;
+
+    while (depth < 4 && (out_w <= (w >> 1) && out_h <= (h >> 1))) {
+        w >>= 1; h >>= 1;
+        w &= ~1u; h &= ~1u;
+        depth++;
+    }
+
+    *bl_w  = w;
+    *bl_h  = h;
+    *sel   = (depth == 0) ? 0u : 1u;
+    *layer = (depth == 0) ? 0u : depth - 1u;
+}
+
 int roi_ratio_exact(uint32_t in_w, uint32_t in_h,
                     uint32_t out_w, uint32_t out_h)
 {
@@ -115,20 +152,30 @@ int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
     cfg.chn_ctrl.ds_roi_uv_bypass    = 0;
 
     /*
-     * One output, taken from the source layer. ds_roi_sel 0 / ds_roi_layer 0 means "the
-     * full-resolution layer", which is why the region below is given in sensor
-     * coordinates; the disabled slots keep their selector/layer at the platform's
-     * defaults and are gated off by ds_roi_en.
+     * One output. The scaling is expressed as "read from this base layer, take this crop
+     * out of it, write it at this size": ds_roi_sel picks the selector (0 or 1),
+     * ds_roi_layer the layer inside it, start_* and region_* the crop measured inside that
+     * layer, and out_* the size it is written at. The node requires the region to fit the
+     * layer (start + region <= layer size) and the region-to-output ratio to stay below
+     * 2x in each direction, which is why a smaller output is served from a reduced layer
+     * instead of by scaling the full-resolution one.
      */
-    cfg.chn_ctrl.ds_roi_sel[0]   = 0;
-    cfg.chn_ctrl.ds_roi_layer[0] = 0;
+    uint32_t bl_w = in_w, bl_h = in_h, bl_sel = 0, bl_layer = 0;
+    pym_layer_pick(in_w, in_h, out_w, out_h, &bl_w, &bl_h, &bl_sel, &bl_layer);
+    cfg.chn_ctrl.ds_roi_sel[0]   = (uint8_t)bl_sel;
+    cfg.chn_ctrl.ds_roi_layer[0] = (uint8_t)bl_layer;
     cfg.chn_ctrl.ds_roi_en       = (uint8_t)(1u << 0);
 
     roi_box_t *box = &cfg.chn_ctrl.ds_roi_info[0];
-    box->start_left    = roi.x;      /* centered crop, the X5 VSE behaviour */
-    box->start_top     = roi.y;
-    box->region_width  = roi.w;
-    box->region_height = roi.h;
+    /* The region is the CROP, expressed inside the named layer, and the node checks
+       start + region <= layer size. Naming the whole layer here while also naming a crop
+       offset puts the region past the end of the layer and the configuration is rejected;
+       both the offset and the size therefore scale from source coordinates into the layer,
+       which for the full-resolution layer is the identity. */
+    box->start_left    = (uint16_t)(roi.x * bl_w / in_w);
+    box->start_top     = (uint16_t)(roi.y * bl_h / in_h);
+    box->region_width  = (uint16_t)(roi.w * bl_w / in_w);
+    box->region_height = (uint16_t)(roi.h * bl_h / in_h);
     box->out_width     = out_w;
     box->out_height    = out_h;
     box->wstride_y     = GS130_ALIGN_16(out_w);

@@ -42,10 +42,22 @@
  * configuration uses 6 for this sensor. */
 #define GS130_VIN_BUF_NUM 6
 
+/* Bytes per line of the RAW10 output, aligned up to the DMA engine's 32-byte plane
+ * boundary. The ISP derives the stride of its own input the same way
+ * (AFRAME_ALIGN_PLANE(width * 10 / 8) in the ISP driver's isp_video_reqbufs_src) and
+ * refuses to bind when the two disagree, so this has to be the aligned packed size and
+ * not a padded bytes-per-pixel count. For the 1088-wide sensor that is 1088 * 10 / 8 =
+ * 1360, rounded up to 1376. */
+#define GS130_VIN_WSTRIDE_ALIGN 32U
+
 int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
              uint32_t width, uint32_t height, uint32_t fps)
 {
     const uint32_t period_us = 1000000U / fps;   /* LPWM period = one frame, in us */
+    /* Packed RAW10 line, then rounded up to the plane alignment the ISP checks against. */
+    const uint32_t ochn_wstride =
+        (((width * 10U / 8U) + GS130_VIN_WSTRIDE_ALIGN - 1U) / GS130_VIN_WSTRIDE_ALIGN)
+        * GS130_VIN_WSTRIDE_ALIGN;
 
     vin_attr_t attr = { 0 };
 
@@ -96,7 +108,7 @@ int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
        of buffers lives in a separate member of the same wrapper. */
     attr.vin_ochn_attr[VIN_MAIN_FRAME].ddr_en = 1;
     attr.vin_ochn_attr[VIN_MAIN_FRAME].vin_basic_attr.format    = GS130_VIN_RAW10;
-    attr.vin_ochn_attr[VIN_MAIN_FRAME].vin_basic_attr.wstride   = width * 2;
+    attr.vin_ochn_attr[VIN_MAIN_FRAME].vin_basic_attr.wstride   = ochn_wstride;
     attr.vin_ochn_attr[VIN_MAIN_FRAME].vin_basic_attr.pack_mode = 1;
     attr.vin_ochn_attr[VIN_MAIN_FRAME].pingpong_ring = 1;
     attr.vin_ochn_attr[VIN_MAIN_FRAME].magicNumber   = GS130_S100_MAGIC_NUMBER;

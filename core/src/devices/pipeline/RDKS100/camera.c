@@ -27,23 +27,26 @@
 /* RAW10, the sensor's output format. */
 #define GS130_CAMERA_RAW10 0x2B
 
-/* Number of MIPI lanes the sensor is wired with. 1 is what the existing X5 backend uses
- * for this module and it is a module property, so it is kept here; the platform's own
- * S100 table for sc132gs uses 2 lanes, but that table describes a different module. */
+/* Number of MIPI lanes the receiver listens on. The GS130 module wires the SC132GS as
+ * a single-lane slave, which is also how the X5 backend runs it. The platform's own
+ * S100 table for a sc132gs at 1088x1280 states 2, but that table describes the board's
+ * separate two-lane self-triggered module rather than this one. */
 #define GS130_CAMERA_LANES 1
 
 /*
- * Sensor mode index. The platform's S100 configuration for this exact sensor and size
- * (hobot_mipi_cam, src/s100/sensor/sc132gs_linear_1088x1280_raw10_30fps_1lane.c) selects
- * mode 1, which matches that file's linear 1088x1280 30fps description. The X5 backend
- * uses mode 6 and calls it the externally triggered mode; the two drivers have their own
- * mode tables, so the X5 index does not carry over.
+ * Sensor mode index. On S100 the platform's camera stack pairs this index with the LPWM
+ * trigger: its externally triggered branch selects mode 6 and turns the LPWM channels
+ * on, its self-triggered branch selects mode 1 and turns them off (hobot_mipi_cam,
+ * src/s100/hobot_mipi_cap_iml.cpp, create_and_run_vflow). The GS130 module is an
+ * externally triggered slave, and the S100 dual-channel launch file for sc132gs runs
+ * with lpwm enabled, so mode 6 is the matching index; vin_open() enables the same
+ * LPWM channels.
  *
- * UNVERIFIED: whether mode 1 on S100 is also externally triggered has not been checked.
- * This is the first value to revisit during bring-up if the flow starts but no frame
- * arrives. See requirement-analysis/jira011-g3-revision.md.
+ * UNVERIFIED: that mode 6 is the externally triggered mode on S100 has not been checked
+ * on this module. If the flow starts but no frame arrives, this is the first value to
+ * revisit. See requirement-analysis/jira011-g3-revision.md.
  */
-#define GS130_CAMERA_SENSOR_MODE 1
+#define GS130_CAMERA_SENSOR_MODE 6
 
 /**
  * @brief Drive the sensor reset GPIO: export it, then pulse the reset sequence.
@@ -126,6 +129,8 @@ int camera_open(camera_handle_t *cam_fd, uint8_t i2c_addr,
     camera_config_t cam_cfg = {
         .name = "sc132gs",
         .addr = i2c_addr,
+        .eeprom_addr = 0x51,   /* from the platform's S100 table for this sensor */
+        .serial_addr = 0x40,
         .sensor_mode = GS130_CAMERA_SENSOR_MODE,
         .fps = fps,
         .format = GS130_CAMERA_RAW10,
@@ -134,7 +139,7 @@ int camera_open(camera_handle_t *cam_fd, uint8_t i2c_addr,
         .extra_mode = 0,
         .config_index = 0,
         .mipi_cfg = &mipi_cfg,
-        .gpio_enable = 0x01,         /* GPIO control bits handed to the driver; the reset */
+        .gpio_enable = 0x00,         /* GPIO control bits handed to the driver; the reset */
         .gpio_level = 0x00,          /* line itself is pulsed by sensor_power() */
         .end_flag = CAMERA_CONFIG_END_FLAG,
     };

@@ -55,6 +55,11 @@ constexpr uint16_t kChipId    = 0x0132;
 constexpr uint32_t kIspHwId = 0;
 constexpr uint32_t kPymHwId = 0;
 
+// First ISP/PYM slot id. S100 hands these out from isp0_next_slot_id, which starts at 4,
+// and the platform's sensor table for this sensor carries slot_id 4 too. Starting at 0
+// left the nodes unbound.
+constexpr uint32_t kIspSlotBase = 4;
+
 /**
  * @brief Convert a driver frame timestamp to nanoseconds.
  *
@@ -83,6 +88,65 @@ uint64_t frame_ts_ns(const hbn_frame_info_t &info)
            static_cast<uint64_t>(info.tv.tv_usec) * 1000ULL;
 }
 
+/**
+ * @brief Resample a dense remap table onto another grid.
+ *
+ * S100 puts the GDC last, so its table has to be laid out on the grid it writes; the
+ * table stereo_rectify() returns is laid out on the rectified grid instead. The entries
+ * for the requested output are therefore taken by bilinear sampling the rectified table
+ * over the crop aspect_roi() selected. Interpolating between entries is meaningful
+ * because every entry holds the same thing: a position in the source image.
+ *
+ * @param[in] src   Rectified table, src_w * src_h entries in row-major order.
+ * @param[in] src_w Width of the rectified grid, in entries.
+ * @param[in] src_h Height of the rectified grid, in entries.
+ * @param[in] roi   Crop of the rectified grid the output covers, in grid entries.
+ * @param[in] dst_w Requested output width, in pixels.
+ * @param[in] dst_h Requested output height, in pixels.
+ * @return dst_w * dst_h entries; zero-filled when src is smaller than the grid it claims.
+ */
+std::vector<RemapPoint> resample_map(const std::vector<RemapPoint> &src,
+                                     uint32_t src_w, uint32_t src_h,
+                                     const gs130_rect_t &roi,
+                                     uint32_t dst_w, uint32_t dst_h)
+{
+    std::vector<RemapPoint> dst(static_cast<std::size_t>(dst_w) * dst_h);
+    if(src.size() < static_cast<std::size_t>(src_w) * src_h)return dst;
+
+    const double step_x = static_cast<double>(roi.w) / dst_w;
+    const double step_y = static_cast<double>(roi.h) / dst_h;
+
+    for(uint32_t v = 0; v < dst_h; v++){
+        for(uint32_t u = 0; u < dst_w; u++){
+            // Output pixel centre, measured in entries of the rectified grid
+            const double gx = roi.x + (u + 0.5) * step_x - 0.5;
+            const double gy = roi.y + (v + 0.5) * step_y - 0.5;
+
+            const double cx = std::min(std::max(gx, 0.0), static_cast<double>(src_w) - 1.0);
+            const double cy = std::min(std::max(gy, 0.0), static_cast<double>(src_h) - 1.0);
+
+            const uint32_t x0 = static_cast<uint32_t>(cx);
+            const uint32_t y0 = static_cast<uint32_t>(cy);
+            const uint32_t x1 = std::min(x0 + 1, src_w - 1);
+            const uint32_t y1 = std::min(y0 + 1, src_h - 1);
+            const double   fx = cx - x0;
+            const double   fy = cy - y0;
+
+            const RemapPoint &p00 = src[static_cast<std::size_t>(y0) * src_w + x0];
+            const RemapPoint &p10 = src[static_cast<std::size_t>(y0) * src_w + x1];
+            const RemapPoint &p01 = src[static_cast<std::size_t>(y1) * src_w + x0];
+            const RemapPoint &p11 = src[static_cast<std::size_t>(y1) * src_w + x1];
+
+            RemapPoint &out = dst[static_cast<std::size_t>(v) * dst_w + u];
+            out.x = (p00.x * (1.0 - fx) + p10.x * fx) * (1.0 - fy) +
+                    (p01.x * (1.0 - fx) + p11.x * fx) * fy;
+            out.y = (p00.y * (1.0 - fx) + p10.y * fx) * (1.0 - fy) +
+                    (p01.y * (1.0 - fx) + p11.y * fx) * fy;
+        }
+    }
+    return dst;
+}
+
 } // namespace
 
 struct Pipeline::Impl {
@@ -104,10 +168,13 @@ struct Pipeline::Impl {
         uint8_t i2c_addr = 0;   // 0 = this eye was not found during probing
     } cam[static_cast<std::size_t>(CamIndex::Num)];
 
-    // Geometry parameters, all in pixels: input = sensor, mid = GDC output and PYM
-    // input (equal to input when GDC is skipped), output = size handed to the caller
+    // Geometry parameters, all in pixels: input = sensor frame, mid = PYM output and
+    // therefore GDC input, output = size handed to the caller. output_roi is the crop
+    // out of the frame the scaling stages read that the output covers; the intrinsics
+    // correction at the end of init() is expressed with it.
     uint32_t input_w = 0, input_h = 0, output_w = 0, output_h = 0;
     uint32_t mid_w = 0, mid_h = 0;
+    gs130_rect_t output_roi{};
     int install_angle = 0;   // degrees, normalized to [0, 360)
 };
 
@@ -182,20 +249,22 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
 
         impl_->cam[i].mipi_rx    = cfg.bus_mipi_rx[bus];
         impl_->cam[i].reset_gpio = cfg.bus_reset_gpio[bus];
-        impl_->cam[i].isp_slot   = static_cast<uint32_t>(i);
+        impl_->cam[i].isp_slot   = kIspSlotBase + static_cast<uint32_t>(i);
     }
 
     // Build the stream
     // Camera node
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
         // MIPI link parameters for this sensor (link clock, settle and MCLK), fixed
-        // here: they are not part of PipelineConfig and do not depend on the geometry
+        // here: they are not part of PipelineConfig and do not depend on the geometry.
+        // The link clock is the one the board's own dual-sensor configuration states for
+        // this module; the X5 backend runs the same sensor at 1200.
         int ret = camera_open(
             &impl_->cam[i].cam_fd,
             impl_->cam[i].i2c_addr,
             impl_->input_w, impl_->input_h, cfg.fps,
             cfg.line_length, cfg.frame_length,
-            1200, 20, 1, cfg.tuning_file);
+            2400, 20, 1, cfg.tuning_file);
 
         if(ret){
             deinit();
@@ -215,23 +284,38 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         }
     }
 
-    // ISP node
-    for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
-        int ret = isp_open(
-            &impl_->cam[i].isp,
-            impl_->input_w, impl_->input_h,
-            kIspHwId, impl_->cam[i].isp_slot, cfg.fps);
-        if(ret){
-            deinit();
-            return Status::HwError;
+    // ISP node. Raw output is the sensor's own frame, so that mode leaves the ISP out of
+    // the flow and reads the capture node instead (see vflow_build); every other mode
+    // runs the frame through the ISP.
+    if(cfg.mode != OutputMode::Raw){
+        for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+            int ret = isp_open(
+                &impl_->cam[i].isp,
+                impl_->input_w, impl_->input_h,
+                kIspHwId, impl_->cam[i].isp_slot, cfg.fps);
+            if(ret){
+                deinit();
+                return Status::HwError;
+            }
         }
     }
 
-    // GDC node
-    // Rect: rectify + rotation;
-    // Resize + install rotation: pure rotation;
-    // Raw: skip GDC
-    if(cfg.mode != OutputMode::Raw){
+    /*
+     * Scaling geometry. PYM always reads the sensor frame and writes mid_w x mid_h; the
+     * GDC, when the flow has one, reads mid_w x mid_h and writes the requested output.
+     * The modes differ only in how mid_* is chosen and in which crop the intrinsics
+     * correction further down assumes.
+     *
+     * Node order is a platform property: on S100 the GDC is LAST. The platform's own
+     * camera stack binds pym -> gdc and never isp -> gdc, because an S100 ISP hands its
+     * frame to PYM through its online output. Rect therefore rectifies what PYM passed
+     * through, and PYM itself is an identity stage at the sensor size.
+     */
+    if(cfg.mode == OutputMode::Raw){
+        impl_->mid_w = impl_->input_w;
+        impl_->mid_h = impl_->input_h;
+    }
+    else{
         // Resize and Rect both update output intrinsics, so both need calibration.
         if(cal == nullptr)return Status::ParamError;
 
@@ -240,83 +324,118 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         impl_->install_angle = ((cal->install_angle % 360) + 360) % 360;
         if(impl_->install_angle % 90 != 0) return Status::ParamError;
 
-        // Handle Rect and rotated Resize cases
-        if(cfg.mode == OutputMode::Rect || impl_->install_angle != 0){
-            // Rotated width/height: the map is built in the output orientation, so the
-            // sensor size is swapped for 90 and 270 degrees
-            const bool swap = (impl_->install_angle == 90 || impl_->install_angle == 270);
+        // Rotated width/height: the tables are built in the rotated orientation, so the
+        // frame size is swapped for 90 and 270 degrees
+        const bool swap = (impl_->install_angle == 90 || impl_->install_angle == 270);
+
+        if(cfg.mode == OutputMode::Rect){
+            // Rotation is applied by the GDC, so the rectification is computed for the
+            // rotated orientation and the source size is swapped
             const uint32_t src_w = swap ? impl_->input_h : impl_->input_w;
             const uint32_t src_h = swap ? impl_->input_w : impl_->input_h;
+            uint32_t rect_w = 0, rect_h = 0;
 
-            // Generate the GDC map: mid_w x mid_h grid entries, each holding the source
-            // pixel to sample; stereo_rectify() chooses the rectified grid size
+            // Generate the rectification tables: stereo_rectify() chooses the rectified
+            // grid size, one table per eye (index 0 = Right, 1 = Left)
             std::vector<RemapPoint> map[static_cast<std::size_t>(CamIndex::Num)];
-            // Stereo distortion rectification for both cameras
-            if(cfg.mode == OutputMode::Rect){
-                Status st = base::stereo_rectify(cal, src_w, src_h,
-                                                 &impl_->mid_w, &impl_->mid_h,
-                                                 &map[static_cast<std::size_t>(CamIndex::Left)],
-                                                 &map[static_cast<std::size_t>(CamIndex::Right)]);
-                if(st != Status::Ok){
-                    deinit();
-                    return Status::Unsupported;
-                }
-            }
-            // Rotation-only correction: identity map, so the GDC only rotates and the
-            // mid size stays the source size
-            else{
-                impl_->mid_w = src_w;
-                impl_->mid_h = src_h;
-
-                // Generate identity Map
-                const uint32_t n = impl_->mid_w * impl_->mid_h;
-                for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
-                    map[i].resize(n);
-                    for(uint32_t p = 0; p < n; p++){
-                        map[i][p].x = p % impl_->mid_w;
-                        map[i][p].y = p / impl_->mid_w;
-                    }
-                }
+            Status st = base::stereo_rectify(cal, src_w, src_h, &rect_w, &rect_h,
+                                             &map[static_cast<std::size_t>(CamIndex::Left)],
+                                             &map[static_cast<std::size_t>(CamIndex::Right)]);
+            if(st != Status::Ok){
+                deinit();
+                return Status::Unsupported;
             }
 
-            // gdc_open per camera (map[0]=Right, map[1]=Left)
+            // ROI divisibility check (guard against integer-division truncation)
+            if(roi_ratio_exact(rect_w, rect_h,
+                               impl_->output_w, impl_->output_h) != 0){
+                deinit();
+                return Status::Unsupported;
+            }
+
+            // The rectified image is cropped to the requested aspect ratio and written at
+            // the requested size. The GDC does both in one pass, so its tables are
+            // generated on the output grid; the grid is also the size it writes.
+            impl_->output_roi = aspect_roi(rect_w, rect_h,
+                                           impl_->output_w, impl_->output_h);
+            for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+                map[i] = resample_map(map[i], rect_w, rect_h, impl_->output_roi,
+                                      impl_->output_w, impl_->output_h);
+            }
+
+            // gdc_open per camera; it reads the untouched sensor frame PYM handed over
             for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
                 int ret = gdc_open(
                     &impl_->cam[i].gdc, &impl_->cam[i].gdc_bin,
                     map[i].data(), impl_->input_w, impl_->input_h,
-                    impl_->mid_w, impl_->mid_h, impl_->install_angle);
+                    impl_->output_w, impl_->output_h, impl_->install_angle);
+                if(ret){
+                    deinit();
+                    return Status::HwError;
+                }
+            }
+
+            // PYM passes the sensor frame through unchanged
+            impl_->mid_w = impl_->input_w;
+            impl_->mid_h = impl_->input_h;
+        }
+        else if(impl_->install_angle != 0){
+            // Resize with an install rotation: PYM scales and the GDC only rotates. The
+            // intermediate is the requested output with its sides swapped for 90 and 270
+            // degrees, so rotating it yields exactly the requested size.
+            impl_->mid_w = swap ? impl_->output_h : impl_->output_w;
+            impl_->mid_h = swap ? impl_->output_w : impl_->output_h;
+
+            // Generate identity tables on the output grid: a rotation resamples nothing
+            std::vector<RemapPoint> map[static_cast<std::size_t>(CamIndex::Num)];
+            const uint32_t n = impl_->output_w * impl_->output_h;
+            for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+                map[i].resize(n);
+                for(uint32_t p = 0; p < n; p++){
+                    map[i][p].x = p % impl_->output_w;
+                    map[i][p].y = p / impl_->output_w;
+                }
+            }
+
+            // gdc_open per camera; it reads the scaled frame PYM handed over
+            for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+                int ret = gdc_open(
+                    &impl_->cam[i].gdc, &impl_->cam[i].gdc_bin,
+                    map[i].data(), impl_->mid_w, impl_->mid_h,
+                    impl_->output_w, impl_->output_h, impl_->install_angle);
                 if(ret){
                     deinit();
                     return Status::HwError;
                 }
             }
         }
-        // Not through GDC: mid takes the sensor size directly (PYM input)
         else{
-            impl_->mid_w = impl_->input_w;
-            impl_->mid_h = impl_->input_h;
+            // Resize without rotation: PYM does the whole job, there is no GDC
+            impl_->mid_w = impl_->output_w;
+            impl_->mid_h = impl_->output_h;
         }
+
+        // For Rect the crop was taken from the rectified grid and published above; every
+        // other mode crops the sensor frame, which is what PYM is given.
+        if(cfg.mode != OutputMode::Rect)
+            impl_->output_roi = aspect_roi(impl_->input_w, impl_->input_h,
+                                           impl_->mid_w, impl_->mid_h);
     }
 
-    // PYM node
+    // PYM node: reads the sensor frame and writes mid_w x mid_h
     if(cfg.mode != OutputMode::Raw){
         // ROI divisibility check (guard against integer-division truncation)
-        if(roi_ratio_exact(impl_->mid_w, impl_->mid_h,
-                           impl_->output_w, impl_->output_h) != 0){
+        if(roi_ratio_exact(impl_->input_w, impl_->input_h,
+                           impl_->mid_w, impl_->mid_h) != 0){
             deinit();
             return Status::Unsupported;
         }
 
-        // Aspect-ratio-preserving ROI, which pym_open() turns into the source region of
-        // the single enabled output slot
-        const gs130_rect_t roi = aspect_roi(impl_->mid_w, impl_->mid_h,
-                                            impl_->output_w, impl_->output_h);
-
         // pym_open per camera
         for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
             int ret = pym_open(
-                &impl_->cam[i].pym, impl_->mid_w, impl_->mid_h,
-                impl_->output_w, impl_->output_h,
+                &impl_->cam[i].pym, impl_->input_w, impl_->input_h,
+                impl_->mid_w, impl_->mid_h,
                 kPymHwId, impl_->cam[i].isp_slot);
             if(ret){
                 deinit();
@@ -324,7 +443,9 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
             }
         }
 
-        // Write back intrinsics: PYM aspect crop + scale (mid coords -> output coords)
+        // Write back intrinsics: the crop the frame was taken from and the scale it was
+        // written at (scaling-stage coordinates -> output coordinates)
+        const gs130_rect_t roi = impl_->output_roi;
         const double sfx = static_cast<double>(impl_->output_w) / roi.w;
         const double sfy = static_cast<double>(impl_->output_h) / roi.h;
         for(CameraIntrinsics *k : {&cal->cam_left, &cal->cam_right}){
@@ -430,29 +551,54 @@ Status Pipeline::get_frame(CamIndex idx,
     const std::size_t i = static_cast<std::size_t>(idx);
     auto &c = impl_->cam[i];
 
+    /*
+     * PYM publishes a frame as one GROUP rather than as a single image, because its
+     * pyramid slots share the frame they were derived from, and the platform reads it with
+     * hbn_vnode_getframe_group(). Every other node in these flows publishes a single image
+     * and is read with hbn_vnode_getframe(); asking PYM for a single image returns no frame
+     * at all, which is why a Resize stream used to start cleanly and then stay empty. In
+     * both cases the requested output is channel pym_chn, i.e. entry 0.
+     */
     hbn_vnode_image_t img;
+    hbn_vnode_image_group_t grp;
     memset(&img, 0, sizeof(img));
-    if(hbn_vnode_getframe(c.output_node, c.output_chn, timeout_ms, &img) != 0)
+    memset(&grp, 0, sizeof(grp));
+
+    const bool grouped = (c.pym != 0 && c.output_node == c.pym);
+    if(grouped){
+        if(hbn_vnode_getframe_group(c.output_node, c.output_chn, timeout_ms, &grp) != 0)
+            return Status::Timeout;
+    }
+    else if(hbn_vnode_getframe(c.output_node, c.output_chn, timeout_ms, &img) != 0){
         return Status::Timeout;
+    }
+
+    const hb_mem_graphic_buf_t &buf =
+        grouped ? grp.buf_group.graph_group[c.output_chn] : img.buffer;
 
     // Check width/height; report error on mismatch, the caller's geometry is not
     // converted or cropped here
-    if((uint32_t)img.buffer.width != width || (uint32_t)img.buffer.height != height){
-        hbn_vnode_releaseframe(c.output_node, c.output_chn, &img);
+    if((uint32_t)buf.width != width || (uint32_t)buf.height != height){
+        if(grouped)hbn_vnode_releaseframe_group(c.output_node, c.output_chn, &grp);
+        else       hbn_vnode_releaseframe(c.output_node, c.output_chn, &img);
         return Status::ParamError;
     }
 
-    // Copy row by row using each plane's stride
+    // Copy row by row using each plane's stride. A captured RAW10 frame is a single
+    // packed plane (the capture node reports plane_cnt 1 and leaves virt_addr[1] null),
+    // so the second plane is only copied when the node actually produced one.
     for(uint32_t r = 0; r < height; ++r)
         memcpy(y + (std::size_t)r * y_stride,
-               img.buffer.virt_addr[0] + (std::size_t)r * img.buffer.stride, width);
-    for(uint32_t r = 0; r < height / 2; ++r)
-        memcpy(uv + (std::size_t)r * uv_stride,
-               img.buffer.virt_addr[1] + (std::size_t)r * img.buffer.stride, width);
+               buf.virt_addr[0] + (std::size_t)r * buf.stride, width);
+    if(buf.plane_cnt > 1 && buf.virt_addr[1] != nullptr)
+        for(uint32_t r = 0; r < height / 2; ++r)
+            memcpy(uv + (std::size_t)r * uv_stride,
+                   buf.virt_addr[1] + (std::size_t)r * buf.stride, width);
 
-    *timestamp_ns = frame_ts_ns(img.info);
+    *timestamp_ns = frame_ts_ns(grouped ? grp.info : img.info);
 
-    hbn_vnode_releaseframe(c.output_node, c.output_chn, &img);
+    if(grouped)hbn_vnode_releaseframe_group(c.output_node, c.output_chn, &grp);
+    else       hbn_vnode_releaseframe(c.output_node, c.output_chn, &img);
     return Status::Ok;
 }
 

@@ -75,12 +75,15 @@ extern "C" {
 #define GS130_S100_MAGIC_NUMBER 0x12345678u
 
 /**
- * @brief YUV420 output on the ISP's AXI output, i.e. the offline (DDR) frame format.
+ * @brief ISP output channel that carries the online frame to the next node.
  *
- * Both platforms hand NV12 to the stages behind the ISP; on S100 that is expressed with
- * axi_output_mode rather than with an FRM_FMT_NV12 input_mode.
+ * An S100 ISP has two output channels: 0 is the DDR output used by the offline link, and
+ * 1 streams the frame on to the node behind it. The platform's own camera stack binds
+ * channel 1 for its ISP -> scaling-node link (hobot_mipi_cam sets is_online_isp_pym = 1
+ * for its ISP-only scene and passes that value as the source channel of the bind);
+ * binding channel 0 leaves the flow unable to start.
  */
-#define GS130_S100_ISP_AXI_FORMAT AXI_OUTPUT_MODE_YUV420
+#define GS130_ISP_STREAM_CHN 1u
 
 /**
  * @brief Run the sensor reset sequence on one GPIO.
