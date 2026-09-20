@@ -129,7 +129,8 @@ typedef struct gs130_device_s gs130_device_t;
 /**
  * @brief SDK version string.
  *
- * @return Version string (e.g. "0.1.0"); statically allocated, do not free.
+ * @return Version string in major.minor.patch form; statically allocated, do
+ *         not free.
  */
 const char *gs130_version(void);
 

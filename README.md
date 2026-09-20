@@ -103,7 +103,7 @@ The gs130 tools are installed together with Core, and the sample sources are kep
 ```bash
 gs130 help                       # list the available commands
 gs130 version                    # SDK version and build platform
-gs130 detect <imu|eeprom|camera> [-b <bus...>] [-a <addr...>]
+gs130 detect <imu|eeprom|camera> -b <bus...> [-a <addr...>]
 gs130 shell -d <device> [-m <mode>] [-w <W>] [-h <H>] [-f <fps>] [-o <odr>]
 ```
 

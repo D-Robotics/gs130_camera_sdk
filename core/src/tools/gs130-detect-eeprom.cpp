@@ -17,12 +17,61 @@
 #include "base/i2c/i2c.hpp"
 #include "devices/eeprom/eeprom.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <vector>
 
 using namespace gs130;
+
+namespace {
+
+// Identification area layout: 15 header bytes [0..14] followed by the checksum byte
+// [15].  The authoritative definition of the sizes and of the checksum expression is
+// the model file devices/eeprom/union_stereo_imu_fisheye_v1p2r0n4.cpp
+// (kHeaderSize / kChecksumOff / kChecksumLen and its probe()); the constants below are
+// read-only mirrors used by the miss branch.  Keep them in sync with that file.
+constexpr uint16_t kIdAreaSize = 16;   // identification area, addressed 0x0000
+constexpr uint8_t kChecksumOff = 15;   // checksum follows the header
+constexpr uint8_t kChecksumLen = 14;   // only the first 14 bytes take part
+constexpr uint8_t kVendorLen   = 8;    // vendor string, NUL padded within these 8
+
+// Mirror of the model checksum: sum of the first 14 bytes, then (sum % 255) + 1.
+static uint8_t id_area_checksum(const uint8_t *raw)
+{
+    uint16_t sum = 0;
+    for(uint8_t i = 0; i < kChecksumLen; i++)sum = (uint16_t)(sum + raw[i]);
+    return (uint8_t)((sum % 255) + 1);
+}
+
+// True when the identification area carries a self-consistent header.  The registered
+// model is matched by Eeprom's own probe; this gate only answers "does the 16-byte
+// block look like a header at all", so an unregistered model passes it too.
+static bool id_area_ok(const uint8_t *raw)
+{
+    return id_area_checksum(raw) == raw[kChecksumOff];
+}
+
+// Vendor field of the identification area as a NUL-terminated bounded copy, so it can
+// be printed with %.8s; the 16-byte read buffer is never handed to %s.
+static void id_area_vendor(const uint8_t *raw, char *out /* [kVendorLen + 1] */)
+{
+    for(uint8_t i = 0; i < kVendorLen; i++)out[i] = (char)raw[i];
+    out[kVendorLen] = '\0';
+}
+
+// Result-column text of one probe point whose identification area checks out but no
+// registered model matched (no leading row prefix).
+static void miss_text(const uint8_t *raw, char *out, size_t cap)
+{
+    char vendor[kVendorLen + 1];
+    id_area_vendor(raw, vendor);
+    snprintf(out, cap, "%.8s unknown(0x%02x,0x%02x) V%u.%u Rotate-%u-deg %u-Distortion-parameters",
+             vendor, raw[8], raw[9], raw[10], raw[11], raw[12], raw[13]);
+}
+
+} // namespace
 
 /**
  * @brief Parse one command-line integer argument.
@@ -104,14 +153,29 @@ int main(int argc, char **argv)
                 print_block("                ", ep.info());
                 n_found++;
             } else {
+                // No registered model matched.  The identification area decides the
+                // outcome: a self-consistent 16-byte block carries a header whose model
+                // is simply not registered here, anything else is reported as absent.
                 base::I2cDevice d((uint8_t)b, (uint8_t)a);
                 uint8_t v;
-                if(d && d.read(0x00, &v) == Status::Ok){
-                    printf(" %3d  0x%02x   unknown device\n", b, a);
-                    n_unknown++;
-                } else {
+                if(!d) {
                     printf(" %3d  0x%02x   no device\n", b, a);
                     n_empty++;
+                } else if(d.read(0x00, &v) != Status::Ok) {
+                    printf(" %3d  0x%02x   no device\n", b, a);
+                    n_empty++;
+                } else {
+                    uint8_t raw[kIdAreaSize];
+                    char text[128];
+                    if(d.readBurst16(0x0000, raw, kIdAreaSize) == Status::Ok
+                       && id_area_ok(raw)) {
+                        miss_text(raw, text, sizeof(text));
+                        printf(" %3d  0x%02x   %s\n", b, a, text);
+                        n_unknown++;
+                    } else {
+                        printf(" %3d  0x%02x   no device\n", b, a);
+                        n_empty++;
+                    }
                 }
             }
         }
