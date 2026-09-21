@@ -1,26 +1,13 @@
 /**
  * @file RDKS100.cpp
- * @brief RDK S100 pipeline: camera probe/init, VIN-ISP-GDC/PYM flow setup, frame fetch.
+ * @brief RDK S100 pipeline: camera probe/init, VIN-ISP-PYM/GDC flow setup, frame fetch.
  *
  * Backend of gs130::pipeline::Pipeline for the RDK S100 / Horizon driver stack, built
  * on the node helpers declared in RDKS100.h. It implements the platform-independent
  * interface of pipeline.hpp: the constructor probes both eyes over I2C, init() builds
- * one vflow per eye (camera -> VIN -> [ISP -> PYM -> [GDC]]), start() starts both flows,
- * get_frame() copies frames into caller buffers, and deinit() tears the hardware down
- * again. Raw reads the capture node, Resize the PYM output and Rect the GDC behind it;
- * vflow_build() reports which.
- *
- * The flow logic is the same as the X5 backend's; what changes is which scaling node is
- * opened (PYM instead of VSE), the order the nodes are chained in (S100 puts the GDC
- * last, see the scaling-geometry comment in init()), and the resource identifiers the
- * ISP and PYM nodes need on this generation. Those are assigned here:
- *
- *   - ISP hw_id 0: the platform's camera stack uses ISP0 for a chain without YNR, which
- *     is the case here.
- *   - slot_id = kIspSlotBase + eye index, i.e. 4 and 5: the platform allocates slots from
- *     a running counter that starts at 4, and starting at 0 leaves the nodes unbound.
- *   - PYM hw_id 0 and the same slot_id as the eye's ISP: the platform pairs them the same
- *     way in its own ISP-only path.
+ * one vflow per eye (camera -> VIN -> ISP, optionally PYM and GDC), start() starts
+ * both flows, get_frame() copies frames into caller buffers, and deinit() tears the
+ * hardware down again.
  *
  * Ownership: acquired handles and buffers are stored in Impl. deinit() releases a
  * fully initialized stream; see pipeline.hpp for the partial-initialization limitation.
@@ -65,15 +52,8 @@ constexpr uint32_t kIspSlotBase = 4;
  * @brief Convert a driver frame timestamp to nanoseconds.
  *
  * Preference order: trig_tv (LPWM rising edge = exposure trigger time), then the
- * driver's timestamps field, then tv (the time the frame was ready). The exposure
- * time is what the IMU pairing needs, so the other two are only fallbacks for when
- * the trigger information is missing.
- *
- * S100 has no timestamp switch on the capture node: cim_func_desc_t carries no
- * time_stamp_en / time_stamp_mode / ts_src (those exist only in X5's vin_cfg.h), and the
- * platform's own S100 camera stack reads trig_tv with no such flag set. The preference
- * order below is therefore unchanged from X5, only the trigger timestamp is no longer
- * explicitly enabled anywhere.
+ * driver's timestamps field, then tv (the time the frame was ready). IMU pairing needs
+ * the exposure time, so the others are fallbacks.
  *
  * @param[in] info Frame information returned with the frame.
  * @return Timestamp in nanoseconds on the device clock.
@@ -179,7 +159,7 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
     // Geometry parameters. A zero size is rejected up front: aspect_roi() and
     // roi_ratio_exact() divide by the requested width and height, so a zero would fault
     // instead of being reported as a parameter error. Everything after the hb_mem_module_open()
-    // above leaves through deinit(), which is what releases that module again.
+    // above is released by deinit() on the way out.
     if(cfg.sensor_width == 0 || cfg.sensor_height == 0 ||
        cfg.output_width == 0 || cfg.output_height == 0){
         deinit();
@@ -258,25 +238,9 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         }
     }
 
-    /*
-     * Scaling geometry. pym_in_* is what PYM reads, mid_* what it writes, and the crop the
-     * intrinsics correction further down assumes is output_roi.
-     *
-     *   Raw:    no GDC or PYM; the ISP's offline/DDR YUV420 frame is read.
-     *   Resize: PYM reads the sensor frame and writes the requested size. A GDC is present
-     *           only when an install rotation needs one, and then it transforms the scaled
-     *           frame without changing what PYM wrote.
-     *   Rect:   the GDC runs FIRST and rectifies the sensor frame through the
-     *           rectification table onto the rectified grid. That grid is not the sensor
-     *           size -- stereo_rectify() grows it until no black border remains
-     *           (1088x1280 -> 1088x1536 on this module) -- so the GDC resamples to a
-     *           different size, exactly as the X5 path does. PYM then takes an
-     *           aspect-preserving window of the rectified frame and scales it to the
-     *           requested output: PYM is this path's scaling stage, and the GDC's own
-     *           output size is the rectification grid rather than the user's request.
-     */
-    // PYM reads the sensor frame unless a mode says otherwise (Rect reads what the GDC
-    // rectified), and writes the mode's intermediate size.
+    // PYM reads pym_in_* and writes mid_*; output_roi is the crop the intrinsics
+    // correction below assumes. For Rect the GDC runs first and resamples onto the
+    // rectification grid, which stereo_rectify() grows past the sensor size.
     impl_->pym_in_w = impl_->input_w;
     impl_->pym_in_h = impl_->input_h;
 
@@ -376,7 +340,7 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         }
 
         // For Rect the crop was taken from the rectified grid and published above; every
-        // other mode crops the sensor frame, which is what PYM is given.
+        // other mode crops the sensor frame PYM is given.
         if(cfg.mode != OutputMode::Rect)
             impl_->output_roi = aspect_roi(impl_->input_w, impl_->input_h,
                                            impl_->mid_w, impl_->mid_h);
@@ -444,22 +408,13 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
 
 void Pipeline::deinit()
 {
-    /*
-     * Release whatever init() managed to open. init() calls this on EVERY failure path,
-     * and at that point inited is still false, so an "if(!inited) return" guard here would
-     * make cleanup a no-op: the sensor, the flow and the hb_mem module would stay open and
-     * the process could not initialise again (a retry with a valid size returned HW_ERROR).
-     * teardown_cam() ignores zero handles, so running it unconditionally is safe.
-     */
+    // Runs on every init() failure path, where inited is still false, so an
+    // "if(!inited) return" guard would skip cleanup entirely. teardown_cam()
+    // ignores zero handles.
 
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
-        /*
-         * teardown_cam() relies on the flow owning the nodes, which only becomes true once
-         * vflow_build() has added them. init() opens the nodes WELL BEFORE that, so a
-         * failure in between (a rejected output size, an unopenable stage) leaves them
-         * open with no flow to release them. Close them here in that case; when the flow
-         * does exist it owns them and hbn_vflow_destroy() releases them.
-         */
+        // teardown_cam() only releases nodes the flow owns, which is true once
+        // vflow_build() has added them; before that init() has to close them.
         if(impl_->cam[i].vflow == 0){
             if(impl_->cam[i].vin)hbn_vnode_close(impl_->cam[i].vin);
             if(impl_->cam[i].isp)hbn_vnode_close(impl_->cam[i].isp);
@@ -560,7 +515,7 @@ Status Pipeline::get_frame(CamIndex idx,
 
     // The node's buffers are allocated CACHED and written by the hardware, so the CPU's
     // view has to be invalidated before the planes below are read; otherwise a read can
-    // hit a stale cache line. The platform's own capture path does the same immediately
+    // hit a stale cache line. The platform's capture path does the same immediately
     // after hbn_vnode_getframe (hobot_mipi_cam, src/s100/hobot_mipi_cap_iml.cpp).
     if(buf.virt_addr[0] != nullptr)
         hb_mem_invalidate_buf_with_vaddr((uint64_t)buf.virt_addr[0], buf.size[0]);

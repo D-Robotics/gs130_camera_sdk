@@ -7,12 +7,6 @@
  * function contract (parameters, units, ownership, return value) is documented with
  * the declaration in RDKS100.h.
  *
- * S100's camera_config_t and mipi_config_t carry more fields than X5's: the GPIO control
- * is named gpio_enable/gpio_level (against gpio_enable_bit/gpio_level_bit), an EEPROM and
- * a serializer address can be given, and both structures end with an end_flag that the
- * driver checks. Values that describe the module rather than the SoC (lane count, sensor
- * mode) are discussed where they are set below.
- *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT
@@ -27,7 +21,7 @@
 /* RAW10, the sensor's output format. */
 #define GS130_CAMERA_RAW10 0x2B
 
-/* Number of MIPI lanes the receiver listens on. The platform's own S100 table for a
+/* Number of MIPI lanes the receiver listens on. The platform's S100 table for a
  * sc132gs at 1088x1280 states 2, and the BSP's slave init sequence agrees: in
  * sc132gs_setting.h both sc132gs_linear_init_1088x1280_30fps_2lane_setting_master[] and
  * sc132gs_linear_init_1088x1280_30fps_setting_slave[] write 0x3018 = 0x32, whose

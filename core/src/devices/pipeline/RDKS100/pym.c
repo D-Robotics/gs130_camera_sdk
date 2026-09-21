@@ -12,17 +12,13 @@
  * the full-resolution one, because the node rejects a region-to-output ratio of 2x or
  * more. The layer, its selector and the crop inside it are covered in pym_layer_pick().
  *
- * The scaling semantics are deliberately the X5 ones: aspect_roi() picks a centered crop
- * of the input with the output's aspect ratio and that crop becomes the source region, so
- * the image is never stretched. The platform's own camera stack instead passes the whole
- * pyramid base layer as the region and lets the requested size be the output, which
- * stretches when the aspect ratios differ; see RDKS100.h for why the crop is kept here.
+ * Scaling preserves the aspect ratio: aspect_roi() picks a centered crop of the input with
+ * the output's aspect ratio and that crop is the source region. The platform's camera
+ * stack instead scales the whole base layer to the requested size, which stretches when the
+ * aspect ratios differ.
  *
- * Unlike VSE, PYM takes one configuration structure for the node attribute, the input
- * channel and the output channel; the same pym_cfg_t is passed to all three setters.
- *
- * Buffer counts, handshaking flags and the horizontal/vertical blanking values follow the
- * platform's S100 configuration for this exact sensor (hobot_mipi_cam,
+ * Buffer counts, handshaking flags and the blanking values follow the platform's S100
+ * configuration for this sensor (hobot_mipi_cam,
  * src/s100/sensor/sc132gs_linear_1088x1280_raw10_30fps_1lane.c).
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
@@ -47,23 +43,16 @@
 #define GS130_PYM_FB_BUF_NUM     2
 #define GS130_PYM_BUF_NUM        3   /* buffers the caller's output channel is given */
 
-/* The base layer a PYM output smaller than the source has to be read from: the source
- * halved, quartered, ... down to a sixteenth, each rounded down to an even size, and the
- * smallest of them that is still at least as large as the requested output.
+/* The base layer a PYM output smaller than the source is read from: the source halved,
+ * quartered, ... down to a sixteenth, each rounded down to an even size, and the smallest
+ * that still covers the requested output.
  *
- * The selector/layer pair does NOT name that halving count directly. Selector 0 is the
- * full-resolution layer on its own and its layer index is 0; selector 1 holds the reduced
- * layers and its layer index counts from zero at the HALF-resolution layer. So an output
- * needing `depth` halvings is named by selector 1 with layer `depth - 1`, and only a
- * full-resolution output uses selector 0. The node's attribute check verifies the region
- * against `src >> (layer + 1)` for selector 1, which is exactly the named layer's size;
- * naming layer `depth` asks for a layer one step too small, the region does not fit it,
- * and the whole configuration is rejected with HBN_STATUS_PYM_INVALID_PARAMETER. Both the
- * node's disassembled check and the platform's S100 camera stack
- * (check_pym_config/create_pym_node in hobot_mipi_cam) agree on this numbering.
+ * Selector 0 names the full-resolution layer; selector 1 names the reduced ones, its layer
+ * index counting from zero at the half-resolution layer. An output needing `depth` halvings
+ * is therefore selector 1 with layer `depth - 1`. Naming layer `depth` asks for a layer one
+ * step too small and the node rejects the configuration.
  *
- * Writes that layer's size through bl_w/bl_h and its selector/layer pair through
- * sel/layer. */
+ * Writes that layer's size through bl_w/bl_h and its selector/layer pair through sel/layer. */
 static void pym_layer_pick(uint32_t in_w, uint32_t in_h,
                            uint32_t out_w, uint32_t out_h,
                            uint32_t *bl_w, uint32_t *bl_h,
@@ -229,8 +218,7 @@ int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
     /*
      * PYM takes one configuration structure for the node attribute, the input channel
      * and the output channel; the platform camera stack passes the same pym_cfg_t to all
-     * three. VSE on X5 uses three distinct structures here, so this is deliberately not
-     * a line-for-line copy of vse.c.
+     * three.
      */
     if (hbn_vnode_set_attr(*pym, &cfg) != 0 ||
         hbn_vnode_set_ichn_attr(*pym, 0, &cfg) != 0 ||

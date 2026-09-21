@@ -7,12 +7,6 @@
  * FSYNC tracker (see src/gs130.cpp), which is why it is derived from the configured
  * frame rate rather than passed in by the caller.
  *
- * On S100 the whole node is described by one vin_attr_t: the node attributes, the
- * input channel, the output channels and the output buffer counts all live in that
- * wrapper, so this file fills one structure and hands it (or a member of it) to each
- * setter. That is the main difference from the X5 backend, which configures the node
- * with a bare vin_node_attr_t.
- *
  * The function contract (parameters, units, ownership, return value) is documented
  * with the declaration in RDKS100.h.
  *
@@ -29,7 +23,7 @@
 #define GS130_VIN_RAW10 0x2B
 
 /*
- * VCON bus selection. Taken from the platform's own S100 configuration for this exact
+ * VCON bus selection. Taken from the platform's S100 configuration for this exact
  * sensor (hobot_mipi_cam, src/s100/sensor/sc132gs_linear_1088x1280_raw10_30fps_1lane.c),
  * which sets both to 2. The platform's camera stack does not derive these from the device
  * tree, so they have to be stated; whether this board uses the same VCON wiring has not

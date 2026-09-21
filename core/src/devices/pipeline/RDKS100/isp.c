@@ -5,9 +5,8 @@
  * RAW10 frames arriving from VIN are processed here and handed on as NV12, which is the
  * format every later stage (PYM, GDC) and the caller's buffers use.
  *
- * Every public mode uses the offline/DDR output: stream output is disabled, AXI YUV420 is
- * enabled and the ISP owns three output buffers. Raw reads that frame directly; Resize and
- * Rect bind it to their downstream hardware nodes.
+ * Every mode reads the offline/DDR output, so stream output is disabled and AXI YUV420 is
+ * enabled.
  *
  * The function contract (parameters, units, ownership, return value) is documented
  * with the declaration in RDKS100.h.
@@ -40,7 +39,7 @@ int isp_open(hbn_vnode_handle_t *isp, uint32_t width, uint32_t height,
     cfg.isp_attr.channel.ctx_id  = AUTO_ALLOC_ID;
 
     cfg.isp_attr.work_mode  = 0;
-    /* Non-HDR (linear) sensor mode: the value the platform's own S100 configuration
+    /* Non-HDR (linear) sensor mode: the value the platform's S100 configuration
        sets for this sensor. */
     cfg.isp_attr.hdr_mode   = 1;
     cfg.isp_attr.size.width  = width;

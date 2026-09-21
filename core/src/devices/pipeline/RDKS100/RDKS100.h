@@ -2,42 +2,25 @@
  * @file RDKS100.h
  * @brief RDK S100 node helpers: one C function per pipeline stage, plus teardown.
  *
- * Internal header of the RDK S100 backend. It is included by RDKS100.cpp (the platform
- * backend selected at build time) and by the node .c files next to it, never by
- * platform-independent code, because it pulls in the RDK S100 / Horizon driver headers.
+ * Internal header of the RDK S100 backend, included by RDKS100.cpp and the node .c files
+ * next to it, never by platform-independent code, because it pulls in the RDK S100 /
+ * Horizon driver headers.
  *
- * S100 and X5 share the same Horizon vnode framework (hbn_vnode_open / set_attr /
- * set_ichn_attr / set_ochn_attr / set_ochn_buf_attr and the hbn_vflow_* calls), but the
- * attribute structures and some entry points differ, so this header mirrors RDKX5.h in
- * intent rather than line for line. The differences, all read off the platform's own
- * camera stack (hobot_mipi_cam, src/s100/) and its headers:
+ * S100 and X5 share the Horizon vnode framework, but the attribute structures and some
+ * entry points differ, so this header mirrors RDKX5.h in intent rather than line for
+ * line. Two differences are easy to miss:
  *
- *   - hbn_vnode_set_attr() for VIN takes the wrapper vin_attr_t, not vin_node_attr_t;
- *     the output channel attributes live in vin_attr_t.vin_ochn_attr[VIN_MAIN_FRAME].
- *   - hbn_vnode_set_attr() for ISP takes the wrapper isp_cfg_t, not isp_attr_t.
- *   - VIN's cim_attr has no hdr_mode / time_stamp_en / time_stamp_mode / ts_src; those
- *     are X5-only fields. S100 has mipi_en, cim_pym_flyby, ipi_channels, enable_pattern
- *     and rdma_input instead.
- *   - ISP online/offline is selected with stream_output_mode and axi_output_mode. There
- *     is no input_mode = DDR_MODE, and no FRM_FMT_* / ISP_MAIN_FRAME / CAM_TRUE here.
- *   - GDC uses one gdc_settings_t for all three setters instead of gdc_attr_t +
- *     gdc_ichn_attr_t + gdc_ochn_attr_t.
- *   - The GDC configuration binary is built with hbn_gen_gdc_cfg() and freed with
- *     hbn_free_gdc_cfg(); X5 calls these hbn_gen_gdc_bin() / hbn_free_gdc_bin(), and the
- *     output pointer is uint32_t** there against void** here.
- *   - The scaling node is PYM (HB_PYM) rather than VSE (HB_VSE), and one pym_cfg_t is
- *     passed to all three setters.
- *   - The driver expects the marker value 0x12345678 in the magicNumber field of
- *     vin_node_attr, vin_ochn_attr, vin_attr, pym_cfg and gdc_settings. The platform
- *     headers only declare the field; the value is defined by the platform's camera
- *     stack, so this header defines it (see GS130_S100_MAGIC_NUMBER).
+ *   - VIN, ISP, PYM and GDC each take one wrapper configuration struct (vin_attr_t,
+ *     isp_cfg_t, pym_cfg_t, gdc_settings_t) where X5 takes separate input/output
+ *     channel structs.
+ *   - Several of those structs carry a magicNumber field the driver checks; see
+ *     GS130_S100_MAGIC_NUMBER.
  *
- * There is no shared context: each helper takes the handles, geometry and parameters
- * it needs, so a node can be read (and reused) on its own. The stage helpers all
- * return 0 on success and -1 on failure. Handles and memory-manager buffers are
- * reported through out-parameters and belong to the caller after creation; partially
- * configured handles may remain non-zero on a later setup failure and must be cleaned
- * up by the backend. GDC buffers are freed by teardown_cam().
+ * There is no shared context: each helper takes the handles, geometry and parameters it
+ * needs. Handles and memory-manager buffers are reported through out-parameters and
+ * belong to the caller after creation; partially configured handles may remain non-zero
+ * on a later setup failure and must be cleaned up by the backend. GDC buffers are freed
+ * by teardown_cam().
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
@@ -69,7 +52,7 @@ extern "C" {
 /**
  * @brief Marker value the S100 driver expects in every magicNumber field.
  *
- * The value is not part of the platform headers; the platform's own camera stack defines
+ * The value is not part of the platform headers; the platform's camera stack defines
  * it locally (hobot_mipi_cam, vp_sensors.h: `#define MAGIC_NUMBER 0x12345678`).
  */
 #define GS130_S100_MAGIC_NUMBER 0x12345678u
@@ -97,10 +80,7 @@ int sensor_power(int gpio, int on);
  * same trigger) and calls hbn_camera_create(). The tuning file path is copied into
  * the camera configuration's calibration name.
  *
- * S100's camera_config_t carries three fields X5's does not (eeprom_addr, serial_addr,
- * extra_mode, config_index) and both structures are terminated by an end_flag; the
- * ones without a meaningful value here are left at 0 / spelled out in the definition.
- *
+
  * @param[out] cam_fd      Receives the camera handle; set to 0 when creation fails.
  * @param[in]  i2c_addr    Sensor I2C address, i.e. the address it was probed at.
  * @param[in]  width,height Sensor output size in pixels.
@@ -128,10 +108,7 @@ int camera_open(
  * with the same period, offset and pulse width; board routing determines which outputs
  * drive the cameras and IMU FSYNC.
  *
- * Unlike X5, the configuration is passed as a single vin_attr_t; the output channel
- * attributes are taken from its vin_ochn_attr[VIN_MAIN_FRAME] entry and the buffer
- * count from vin_ochn_buff_attr[VIN_MAIN_FRAME]. The magicNumber markers are filled in
- * here because the driver rejects the node without them.
+ * The driver rejects the VIN node unless the magicNumber markers are set.
  *
  * @note The SDK layer uses this frame period as the master time base of the IMU
  *       FSYNC tracker (see src/gs130.cpp), which is why the period is derived from
@@ -149,10 +126,7 @@ int vin_open(
     uint32_t width, uint32_t height, uint32_t fps);
 
 /**
- * @brief Open the ISP node with online-stream or offline-DDR NV12 output.
- *
- * All public modes use the offline/DDR YUV420 output on channel 0: Raw reads ISP directly,
- * Resize binds it to PYM in M2M mode, and Rect binds it through GDC to PYM in M2M mode.
+ * @brief Open the ISP node with offline/DDR YUV420 output on channel 0.
  *
  * @param[out] isp        Receives the ISP vnode handle; set to 0 only when opening the node fails.
  * @param[in]  width,height Frame size in pixels.
@@ -184,9 +158,7 @@ int roi_ratio_exact(uint32_t in_w, uint32_t in_h,
 /**
  * @brief A pixel rectangle in input coordinates, as used by aspect_roi().
  *
- * X5 defines this as common_rect_t in cam_def.h. That header does not exist on S100,
- * so the two fields the backend actually needs are declared here instead of pulling in
- * the whole X5 camera definition header.
+ * X5's common_rect_t (cam_def.h) is not available here.
  */
 typedef struct {
     uint32_t x;
@@ -213,10 +185,8 @@ gs130_rect_t aspect_roi(uint32_t in_w, uint32_t in_h,
  * aspect_roi() picks a centered crop of the input with the output's aspect ratio, and
  * that crop becomes the PYM source region, so the output is never stretched.
  *
- * This is deliberately not what the platform's own camera stack does. hobot_mipi_cam
- * passes the whole pyramid base layer as the region and lets the requested size be the
- * output, which stretches whenever the aspect ratios differ. Keeping the crop keeps the
- * two platforms' outputs comparable and lets the backend reuse its intrinsics update.
+ * hobot_mipi_cam instead passes the whole pyramid base layer as the region and lets the
+ * requested size be the output, which stretches when the aspect ratios differ.
  *
  * Unlike VSE, PYM takes one configuration structure for the node attribute, the input
  * channel and the output channel; the same pym_cfg_t is passed to all three setters. This

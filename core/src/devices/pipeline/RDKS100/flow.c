@@ -30,20 +30,12 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         return -1;
 
     /*
-     * Two orders, chosen by the caller, after vin -> isp:
+     * The caller chooses the order after vin -> isp:
      *
-     *   gdc_before_pym == 0:  isp -> pym -> [gdc]
-     *     PYM scales (it is this platform's VSE equivalent; there is no VSE node on S100)
-     *     and the GDC, when present, only transforms the frame it is handed. Used by
-     *     Resize, including the install-rotation case, and by any flow without a GDC.
-     *
-     *   gdc_before_pym == 1:  isp -> gdc -> pym
-     *     The GDC resamples the sensor frame through the rectification table onto the
-     *     rectified grid, which is NOT the sensor size: stereo_rectify() grows the grid
-     *     until the black borders disappear (1088x1280 -> 1088x1536 on this module), so
-     *     the GDC changes the size. PYM then takes an aspect-preserving window of that
-     *     rectified frame and scales it to the requested output, which is what makes PYM
-     *     (not the GDC) this path's scaling stage.
+     *   gdc_before_pym == 0: isp -> pym -> [gdc]. PYM scales; a GDC, when present, only
+     *     transforms the frame it is handed.
+     *   gdc_before_pym == 1: isp -> gdc -> pym. The GDC resamples onto the rectification
+     *     grid, which is larger than the sensor frame, and PYM windows and scales that.
      */
     if(isp != 0 && hbn_vflow_bind_vnode(*vflow, vin, 0, isp, 0) != 0)return -1;
     if(pym != 0 && isp != 0 && gdc_before_pym && gdc != 0){

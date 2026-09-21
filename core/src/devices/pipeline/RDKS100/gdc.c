@@ -9,17 +9,11 @@
  * that at compile time, so a change to RemapPoint (src/types.hpp) must be mirrored in
  * point_t.
  *
- * param_t and window_t are shared between the two generations, so the map handling and
- * the generated binary are identical to the X5 backend. What differs is the platform
- * entry points and the node attributes:
- *
- *   - the binary is built with hbn_gen_gdc_cfg() and freed with hbn_free_gdc_cfg();
- *     X5 calls the same steps hbn_gen_gdc_bin() / hbn_free_gdc_bin(), and its output
- *     pointer is uint32_t** against void** here;
- *   - the node is configured with a single gdc_settings_t passed to all three setters,
- *     against X5's gdc_attr_t + gdc_ichn_attr_t + gdc_ochn_attr_t;
- *   - the geometry travels inside that structure, and strides are 16-byte aligned, as
- *     the platform's own S100 camera stack does.
+ * param_t and window_t are shared between the two generations, so the map handling is the
+ * same as X5's. The platform entry points differ: the binary is built with
+ * hbn_gen_gdc_cfg() / hbn_free_gdc_cfg() (X5: hbn_gen_gdc_bin() / hbn_free_gdc_bin(), with
+ * a uint32_t** output pointer), the node takes one gdc_settings_t for all three setters,
+ * and strides are 16-byte aligned.
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
@@ -112,7 +106,7 @@ int gdc_open(hbn_vnode_handle_t *gdc, hb_mem_common_buf_t *gdc_bin,
     uint64_t cfg_size = 0;
     if (hbn_gen_gdc_cfg(&param, &win, 1, &cfg_buf, &cfg_size) != 0 ||
         cfg_buf == NULL || cfg_size == 0) {
-        /* Freed through the platform's own entry point, not free(): the buffer comes
+        /* Freed through the platform's entry point, not free(): the buffer comes
            from the GDC generator, so it must go back to it. */
         if (cfg_buf != NULL)
             hbn_free_gdc_cfg((uint32_t *)cfg_buf);
