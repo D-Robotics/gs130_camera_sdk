@@ -27,7 +27,7 @@ Core must be installed before either wrapper can be used.
 - **Python wrapper**: Python 3.10 or later and `numpy`. Building the wheel additionally requires `setuptools` and `wheel`.
 - **ROS 2 wrapper**: ROS 2 Humble or Jazzy. The web preview and stereo depth launch files also require the TROS packages `hobot_codec`, `websocket` and `hobot_stereonet`.
 
-The current release implements the RDK X5 backend. Support for RDK S100 and RDK S600 is in development.
+The current release implements the RDK X5 and RDK S100 backends. Support for RDK S600 is in development.
 
 ## 🗂️ Repository layout
 

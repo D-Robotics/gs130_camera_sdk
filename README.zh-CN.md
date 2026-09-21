@@ -27,7 +27,7 @@ GS130 Camera SDK 提供在 RDK 系列开发板上使用 GS130 双目相机及板
 - **Python 封装**：Python 3.10 或更高版本与 `numpy`；构建 wheel 还需要 `setuptools` 与 `wheel`。
 - **ROS 2 封装**：ROS 2 Humble 或 Jazzy。网页预览与双目深度两个 launch 还需要 TROS 的 `hobot_codec`、`websocket` 与 `hobot_stereonet`。
 
-本版本实现了 RDK X5 后端，RDK S100 与 RDK S600 的支持仍在开发中。
+本版本实现了 RDK X5 与 RDK S100 后端，RDK S600 的支持仍在开发中。
 
 ## 🗂️ 仓库结构
 
