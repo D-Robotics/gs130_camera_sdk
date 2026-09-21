@@ -29,6 +29,7 @@
 #define GS130_CONFIG_PLATFORM(platform, device, mode, w, h, fps, odr) \
     strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130WI") == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130WI((mode), (w), (h), (fps), (odr)) : \
     strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W")  == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W((mode), (w), (h), (fps), (odr))  : \
+    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W_NO_EEPROM") == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W_NO_EEPROM((mode), (w), (h), (fps), (odr)) : \
     strcmp((platform), "RDKS100") == 0 && strcmp((device), "GS130WI") == 0 ? (gs130_config_t) GS130_CONFIG_RDKS100_GS130WI((mode), (w), (h), (fps), (odr)) : \
     (fprintf(stderr, "unsupported platform/device: %s %s\n", (platform), (device)), exit(1), (gs130_config_t){0})
 
@@ -108,6 +109,38 @@
     .eeprom_config = { .bus = {2}, .bus_num = 1, .addr = 0x50 },            \
     .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
     .imu_fifo    = { .depth = 1024, .mode = GS130_FIFO_DROP_OLD },          \
+}
+
+/* A GS130W-family module with no usable calibration EEPROM. Differs from
+   GS130_CONFIG_RDKX5_GS130W in two places: the camera addresses and the disabled EEPROM.
+   The addresses are the ones measured on the module this preset was added for (left on
+   bus 4 at 0x33, right on bus 6 at 0x32). That module does not answer at the GS130W
+   preset's 0x30/0x31, and pipeline construction requires both addresses to be found, so
+   reusing those addresses left the device unable to initialize at all.
+   eeprom_config.bus_num = 0 disables EEPROM probing. Its address stays listed the way the
+   disabled IMU bus above keeps its own, so the two macros can still be compared field by
+   field; bus_num is what the SDK actually reads. */
+#define GS130_CONFIG_RDKX5_GS130W_NO_EEPROM(mode_, width_, height_, fps_, odr_) { \
+    .camera_config = {                                                      \
+        .bus = {4, 6}, .bus_num = 2,                                        \
+        .left_addr = 0x33, .right_addr = 0x32,                              \
+        .sensor_width = 1088, .sensor_height = 1280,                        \
+        .fps = (fps_), .line_length = 1400, .frame_length = 1500,           \
+        .tuning_file = NULL,                                                \
+        .output_width = (width_), .output_height = (height_),               \
+        .mode = (mode_),                                                    \
+        .stereo_layout = GS130_STEREO_LAYOUT_NONE,                          \
+        .bus_mipi_rx    = { [0 ... 3] = 0xFF, [4] = 2, [5] = 0xFF, [6] = 0, [7 ... 31] = 0xFF }, \
+        .bus_reset_gpio = { [0 ... 3] = -1, [4] = 351, [5] = -1, [6] = 353, [7 ... 31] = -1 },   \
+        .fsync_camera = GS130_CAMERA_RIGHT_IDX,                             \
+    },                                                                      \
+    .imu_config = {                                                         \
+        .bus_num = 0, .addr = 0x68,                                         \
+        .odr_hz = (odr_), .accel_fsr_g = 16, .gyro_fsr_dps = 2000,          \
+        .accel_bw_sel = 0, .gyro_bw_sel = 0,                                \
+    },                                                                      \
+    .eeprom_config = { .bus_num = 0, .addr = 0x50 },                        \
+    .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
 }
 
 #endif /* GS130_DEFINE_H */
