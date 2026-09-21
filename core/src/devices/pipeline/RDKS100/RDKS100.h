@@ -3,22 +3,19 @@
  * @brief RDK S100 node helpers: one C function per pipeline stage, plus teardown.
  *
  * Internal header of the RDK S100 backend, included by RDKS100.cpp and the node .c files
- * next to it, never by platform-independent code, because it pulls in the RDK S100 /
- * Horizon driver headers.
+ * next to it, never by platform-independent code, because it pulls in the platform's
+ * driver headers.
  *
- * S100 and X5 share the Horizon vnode framework, but the attribute structures and some
- * entry points differ, so this header mirrors RDKX5.h in intent rather than line for
- * line. Two differences are easy to miss:
+ * Two things are easy to miss on this platform:
  *
  *   - VIN, ISP, PYM and GDC each take one wrapper configuration struct (vin_attr_t,
- *     isp_cfg_t, pym_cfg_t, gdc_settings_t) where X5 takes separate input/output
- *     channel structs.
+ *     isp_cfg_t, pym_cfg_t, gdc_settings_t) rather than separate input, output and
+ *     buffer-attribute structs.
  *   - Several of those structs carry a magicNumber field the driver checks; see
  *     GS130_S100_MAGIC_NUMBER.
  *
- * There is no shared context: each helper takes the handles, geometry and parameters it
- * needs. Handles and memory-manager buffers are reported through out-parameters and
- * belong to the caller after creation; partially configured handles may remain non-zero
+ * Handles and memory-manager buffers are reported through out-parameters and belong to
+ * the caller after creation; partially configured handles may remain non-zero
  * on a later setup failure and must be cleaned up by the backend. GDC buffers are freed
  * by teardown_cam().
  *

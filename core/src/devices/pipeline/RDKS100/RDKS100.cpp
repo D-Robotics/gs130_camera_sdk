@@ -3,11 +3,7 @@
  * @brief RDK S100 pipeline: camera probe/init, VIN-ISP-PYM/GDC flow setup, frame fetch.
  *
  * Backend of gs130::pipeline::Pipeline for the RDK S100 / Horizon driver stack, built
- * on the node helpers declared in RDKS100.h. It implements the platform-independent
- * interface of pipeline.hpp: the constructor probes both eyes over I2C, init() builds
- * one vflow per eye (camera -> VIN -> ISP, optionally PYM and GDC), start() starts
- * both flows, get_frame() copies frames into caller buffers, and deinit() tears the
- * hardware down again.
+ * on the node helpers declared in RDKS100.h.
  *
  * Ownership: acquired handles and buffers are stored in Impl. deinit() releases a
  * fully initialized stream; see pipeline.hpp for the partial-initialization limitation.
