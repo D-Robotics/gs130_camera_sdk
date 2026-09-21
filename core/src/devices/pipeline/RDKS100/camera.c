@@ -21,44 +21,16 @@
 /* RAW10, the sensor's output format. */
 #define GS130_CAMERA_RAW10 0x2B
 
-/* Number of MIPI lanes the receiver listens on. The platform's S100 table for a
- * sc132gs at 1088x1280 states 2, and the BSP's slave init sequence agrees: in
- * sc132gs_setting.h both sc132gs_linear_init_1088x1280_30fps_2lane_setting_master[] and
- * sc132gs_linear_init_1088x1280_30fps_setting_slave[] write 0x3018 = 0x32, whose
- * bit[7:5] = 001 selects two-lane mode. There is no single-lane init sequence in the
- * BSP, so a one-lane slave would need a new sensor table rather than a value here.
- * (Measured: this field does not reach the driver on this board -- the receiver reports
- * "2 lane" whatever this is set to -- so the sensor's own table is what decides.) */
+/* Two lanes: the BSP's slave init table writes 0x3018 = 0x32 (bit[7:5] = 001) and
+ * there is no single-lane table. This field does not reach the driver on this board. */
 #define GS130_CAMERA_LANES 2
 
-/*
- * Sensor mode index. On S100 the platform's camera stack pairs this index with the LPWM
- * trigger: its externally triggered branch selects mode 6 and turns the LPWM channels
- * on, its self-triggered branch selects mode 1 and turns them off (hobot_mipi_cam,
- * src/s100/hobot_mipi_cap_iml.cpp, create_and_run_vflow). The GS130 module is an
- * externally triggered slave, and the S100 dual-channel launch file for sc132gs runs
- * with lpwm enabled, so mode 6 is the matching index; vin_open() enables the same
- * LPWM channels.
- *
- * MEASURED (2026-09-21): mode 6 with the LPWM channels enabled streams on this board --
- * raw/resize/rect all reach 30.00 fps with both eyes carrying identical timestamps -- so
- * the externally triggered slave branch is the one that matches this module.
- * See requirement-analysis/jira011-g3-revision.md.
- */
+/* Sensor mode index. The platform's externally triggered branch selects mode 6 and turns
+ * the LPWM channels on, which is what this module and vin_open() use. */
 #define GS130_CAMERA_SENSOR_MODE 6
 
-/**
- * @brief Drive the sensor reset GPIO: export it, then pulse the reset sequence.
- *
- * The GPIO is reached through sysfs. 1 -> 0 -> 1 is a reset sequence, not a power
- * switch: the rail stays on, the sensor is only released from reset. Every step of
- * the sequence is held for 30 ms.
- *
- * @param[in] gpio Reset GPIO number; a negative value returns 0 without touching sysfs.
- * @param[in] on   Non-zero runs the reset sequence, 0 drives the line low (no wait).
- * @return 0 when the sequence ran (or control is disabled), -1 when a value file cannot
- *         be opened.
- */
+/** Drive the sensor reset GPIO through sysfs. 1 -> 0 -> 1 releases the sensor from reset;
+ *  the rail stays on and every step is held for 30 ms. */
 int sensor_power(int gpio, int on)
 {
     if(gpio < 0)return 0;

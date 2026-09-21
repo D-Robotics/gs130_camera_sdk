@@ -21,8 +21,7 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         *vflow = 0;
         return -1;
     }
-    // A handle of 0 means the stage is not part of this flow. Raw has an ISP but no GDC or
-    // PYM; Resize has PYM only; Rect has both GDC and PYM.
+    // A handle of 0 skips that stage.
     if (hbn_vflow_add_vnode(*vflow, vin) != 0 ||
         (isp != 0 && hbn_vflow_add_vnode(*vflow, isp) != 0) ||
         (gdc != 0 && hbn_vflow_add_vnode(*vflow, gdc) != 0) ||
@@ -45,8 +44,7 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         *out_chn  = pym_chn;
     }
     else if(pym != 0 && isp != 0){
-        /* All modes use the ISP's offline/DDR YUV420 output on channel 0. Resize binds
-           it directly to PYM; the install-rotation variant appends GDC after PYM. */
+        /* The ISP's offline/DDR output on channel 0 binds straight to PYM. */
         if(hbn_vflow_bind_vnode(*vflow, isp, 0, pym, 0) != 0) return -1;
         if(gdc != 0){
             if(hbn_vflow_bind_vnode(*vflow, pym, pym_chn, gdc, 0) != 0) return -1;
@@ -63,14 +61,12 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         *out_chn  = 0;
     }
     else if(isp != 0){
-        // Direct ISP output. S100 has no ISP_MAIN_FRAME symbol; the ISP's single
-        // output channel is channel 0, the same channel the configuration used.
+        // The ISP's single output channel is channel 0.
         *out_node = isp;
         *out_chn  = 0;
     }
     else{
-        // No ISP in the flow: this fallback reads the capture node itself. Current public
-        // modes all instantiate ISP; Raw normally reaches the ISP branch above.
+        // No ISP in the flow, so read the capture node itself.
         *out_node = vin;
         *out_chn  = 0;
     }

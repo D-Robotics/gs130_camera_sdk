@@ -57,42 +57,12 @@ extern "C" {
  */
 #define GS130_S100_MAGIC_NUMBER 0x12345678u
 
-/**
- * @brief Run the sensor reset sequence on one GPIO.
- *
- * The GPIO is driven through sysfs (export, direction = out) and then pulsed
- * "1" -> "0" -> "1", holding 30 ms after every step of the sequence. The sensor
- * stays powered throughout: this releases it from reset and restores it to its
- * normal, detectable state.
- *
- * @param[in] gpio Reset GPIO number; negative disables GPIO control and returns 0.
- * @param[in] on   Non-zero runs the reset sequence above, 0 drives the line low.
- * @return 0 when the sequence ran (or GPIO control is disabled), -1 when the GPIO
- *         value file cannot be opened.
- */
+/** Run the sensor reset sequence on one GPIO through sysfs. A negative gpio disables
+ *  the control and the call succeeds. */
 int sensor_power(int gpio, int on);
 
-/**
- * @brief Create the camera device for one sensor: MIPI receiver and sensor config.
- *
- * Fills mipi_config_t and camera_config_t for an externally triggered sensor (the
- * frame sync comes from the LPWM generator in vin_open(), so both eyes expose on the
- * same trigger) and calls hbn_camera_create(). The tuning file path is copied into
- * the camera configuration's calibration name.
- *
-
- * @param[out] cam_fd      Receives the camera handle; set to 0 when creation fails.
- * @param[in]  i2c_addr    Sensor I2C address, i.e. the address it was probed at.
- * @param[in]  width,height Sensor output size in pixels.
- * @param[in]  fps         Frame rate in frames per second.
- * @param[in]  line_length Sensor line length in pixel clocks.
- * @param[in]  frame_length Sensor frame length in lines.
- * @param[in]  mipiclk,settle,mclk MIPI link parameters handed to the driver as-is;
- *                         the backend passes fixed values for this sensor.
- * @param[in]  tuning_file ISP tuning file path, borrowed and not retained; NULL
- *                         selects the driver's own "disable" tuning.
- * @return 0 on success, -1 when hbn_camera_create() fails.
- */
+/** Create the camera device for one sensor: MIPI receiver and sensor config.
+ *  tuning_file is borrowed and not retained; NULL selects "disable". */
 int camera_open(
     camera_handle_t *cam_fd,
     uint8_t i2c_addr,
@@ -101,65 +71,25 @@ int camera_open(
     uint16_t mipiclk, uint16_t settle, uint16_t mclk,
     const char *tuning_file);
 
-/**
- * @brief Open the VIN node: MIPI capture (CIM) plus the LPWM frame trigger.
- *
- * Frames are written to DDR (no ISP fly-by) and all four LPWM channels are configured
- * with the same period, offset and pulse width; board routing determines which outputs
- * drive the cameras and IMU FSYNC.
- *
- * The driver rejects the VIN node unless the magicNumber markers are set.
- *
- * @note The SDK layer uses this frame period as the master time base of the IMU
- *       FSYNC tracker (see src/gs130.cpp), which is why the period is derived from
- *       the configured frame rate.
- *
- * @param[out] vin        Receives the VIN vnode handle; set to 0 only when opening the node fails.
- * @param[in]  mipi_rx    MIPI RX index this sensor is wired to; also the node's hw_id.
- * @param[in]  width,height Frame size in pixels.
- * @param[in]  fps        Frame rate in frames per second; sets the LPWM period.
- * @return 0 on success, -1 when the node cannot be opened or configured.
- */
+/** Open the VIN node: MIPI capture (CIM) plus the LPWM frame trigger. The LPWM period
+ *  comes from fps and is the SDK's IMU FSYNC time base. */
 int vin_open(
     hbn_vnode_handle_t *vin,
     int mipi_rx,
     uint32_t width, uint32_t height, uint32_t fps);
 
-/**
- * @brief Open the ISP node with offline/DDR YUV420 output on channel 0.
- *
- * @param[out] isp        Receives the ISP vnode handle; set to 0 only when opening the node fails.
- * @param[in]  width,height Frame size in pixels.
- * @param[in]  hw_id      ISP hardware instance; the backend fixes this per platform.
- * @param[in]  slot_id    ISP slot for this eye; the backend assigns one per camera so
- *                        two eyes do not collide. It is the slot PYM must reuse.
- * @param[in]  fps        Frame rate in frames per second, reported to the ISP scheduler.
- * @return 0 on success, -1 when the node cannot be opened or configured.
- */
+/** Open the ISP node with offline/DDR YUV420 output on channel 0. */
 int isp_open(
     hbn_vnode_handle_t *isp,
     uint32_t width, uint32_t height,
     uint32_t hw_id, uint32_t slot_id, uint32_t fps);
 
-/**
- * @brief Check that the aspect-preserving ROI of an input/output size pair divides exactly.
- *
- * Guards the integer division in aspect_roi(): a crop size that is not an exact
- * multiple of the scale would be truncated, so the caller reports the configuration
- * as unsupported instead of streaming a silently wrong geometry.
- *
- * @param[in] in_w,in_h   Input size in pixels.
- * @param[in] out_w,out_h Output size in pixels.
- * @return 0 if the ROI width/height divide exactly, -1 otherwise.
- */
+/** Check that the aspect-preserving ROI of an in/out size pair divides exactly, so
+ *  the integer division in aspect_roi() truncates nothing. */
 int roi_ratio_exact(uint32_t in_w, uint32_t in_h,
                     uint32_t out_w, uint32_t out_h);
 
-/**
- * @brief A pixel rectangle in input coordinates, as used by aspect_roi().
- *
- * X5's common_rect_t (cam_def.h) is not available here.
- */
+/** A pixel rectangle in input coordinates, as used by aspect_roi(). */
 typedef struct {
     uint32_t x;
     uint32_t y;
@@ -167,123 +97,38 @@ typedef struct {
     uint32_t h;
 } gs130_rect_t;
 
-/**
- * @brief Crop an ROI from 'in' with the same aspect ratio as 'out', centered.
- *
- * @param[in] in_w,in_h   Input size in pixels.
- * @param[in] out_w,out_h Output size in pixels.
- * @return The crop rectangle in input coordinates: full height or full width, the
- *         other axis centered. Validate it with roi_ratio_exact() before using it.
- */
+/** Crop a centered ROI from 'in' with the aspect ratio of 'out'. Validate the result
+ *  with roi_ratio_exact() before using it. */
 gs130_rect_t aspect_roi(uint32_t in_w, uint32_t in_h,
                         uint32_t out_w, uint32_t out_h);
 
-/**
- * @brief Open the PYM node: aspect-preserving ROI crop, then scaling.
- *
- * S100's counterpart of the X5 VSE node. The backend keeps the X5 semantics on purpose:
- * aspect_roi() picks a centered crop of the input with the output's aspect ratio, and
- * that crop becomes the PYM source region, so the output is never stretched.
- *
- * hobot_mipi_cam instead passes the whole pyramid base layer as the region and lets the
- * requested size be the output, which stretches when the aspect ratios differ.
- *
- * Unlike VSE, PYM takes one configuration structure for the node attribute, the input
- * channel and the output channel; the same pym_cfg_t is passed to all three setters. This
- * backend uses PYM_M2M_MODE because ISP and GDC hand it DDR-backed frames through direct
- * vnode binds; M2M here does not imply a CPU getframe/sendframe bridge.
- *
- * @param[out] pym        Receives the PYM vnode handle; set to 0 only when opening the node fails.
- * @param[in]  in_w,in_h  Input size in pixels.
- * @param[in]  out_w,out_h Output size in pixels.
- * @param[in]  hw_id      PYM hardware instance; the backend fixes this per platform.
- * @param[in]  slot_id    PYM slot for this eye, which is the ISP slot of the same eye.
- * @return 0 on success, -1 when the node cannot be opened or configured.
- */
+/** Open the PYM node: aspect-preserving ROI crop, then scaling. Uses PYM_M2M_MODE
+ *  because ISP and GDC hand it DDR-backed frames over direct vnode binds. */
 int pym_open(
     hbn_vnode_handle_t *pym,
     uint32_t in_w, uint32_t in_h,
     uint32_t out_w, uint32_t out_h,
     uint32_t hw_id, uint32_t slot_id);
 
-/**
- * @brief Open the GDC node from a generated map: sub-pixel offset, clamp, rotation.
- *
- * @p map holds grid_w * grid_h RemapPoint values (output pixel -> source sampling
- * coordinate). Every point is offset by +0.5 px (bilinear interpolation
- * compensation), clamped to the source bounds so no black border appears, and then
- * rotated by @p install_angle. The result is encoded into a GDC configuration binary
- * with hbn_gen_gdc_cfg() and handed to the node with the geometry of both sides.
- *
- * The map layout is expected to match the driver's point_t{double x, y}; this is
- * maintained by hand, there is no compile-time check of it. param_t and window_t are
- * shared with X5, so this helper differs from its X5 counterpart only in how the node
- * is configured once the binary exists.
- *
- * @param[out] gdc        Receives the GDC vnode handle; set to 0 when the open fails.
- * @param[out] gdc_bin    Receives the memory-manager buffer holding the configuration
- *                        binary. It belongs to the caller and must be freed (see
- *                        teardown_cam()).
- * @param[in]  map        Borrowed read-only map of grid_w * grid_h points; not retained.
- * @param[in]  in_w,in_h  GDC input size in pixels, i.e. the sensor geometry.
- * @param[in]  grid_w,grid_h Map size in pixels, which is the GDC output geometry. The
- *                        map is generated in the rotated orientation, so for 90/270
- *                        degrees its coordinates span the sensor height instead.
- * @param[in]  install_angle Rotation in degrees; 0, 90, 180 and 270 have a defined
- *                        mapping, any other value leaves the points unrotated.
- * @return 0 on success, -1 on allocation, binary-generation or node-configuration failure.
- */
+/** Open the GDC node from a generated map: every point offset by +0.5 px, clamped to
+ *  the source bounds, then rotated by install_angle. The map has to match the driver's
+ *  point_t{double x, y}; nothing checks that at compile time. */
 int gdc_open(
     hbn_vnode_handle_t *gdc,
     hb_mem_common_buf_t *gdc_bin,
     const void *map, uint32_t in_w, uint32_t in_h,
     uint32_t grid_w, uint32_t grid_h, int install_angle);
 
-/**
- * @brief Create the vflow, add and bind the nodes, and report where frames come out.
- *
- * All public modes use ISP offline/DDR output channel 0. A zero handle skips a stage:
- * Raw is vin -> isp, Resize is vin -> isp -> pym, and Rect is
- * vin -> isp -> gdc -> pym. PYM is the final scaling node in both processed modes, and
- * GDC only generates the rectified geometry for Rect. The camera is attached to VIN last,
- * once the nodes are bound.
- *
- * @param[out] vflow      Receives the vflow handle; set to 0 when creation fails.
- * @param[in]  cam_fd     Camera handle to attach to VIN.
- * @param[in]  vin,isp,gdc,pym Vnode handles to add and bind; 0 = stage not present.
- * @param[in]  pym_chn    PYM output channel, used when @p pym is present.
- * @param[in]  gdc_before_pym Non-zero selects ISP -> GDC -> PYM; zero selects
- *                        ISP -> PYM -> optional GDC.
- * @param[out] out_node   Receives the last node in the selected chain. Written on success.
- * @param[out] out_chn    Receives the channel to read on @p out_node: pym_chn for PYM
- *                        (which publishes a frame as a group, see get_frame()), 0 for
- *                        GDC, ISP or VIN. Written on success only.
- * @return 0 on success, -1 when a create, add, bind or attach step fails.
- */
+/** Create the vflow, add and bind the nodes, and report where frames come out. A zero
+ *  handle skips a stage; gdc_before_pym selects the order of the last two. */
 int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
                 hbn_vnode_handle_t vin, hbn_vnode_handle_t isp,
                 hbn_vnode_handle_t gdc, hbn_vnode_handle_t pym,
                 uint32_t pym_chn, int gdc_before_pym,
                 hbn_vnode_handle_t *out_node, uint32_t *out_chn);
 
-/**
- * @brief Tear down one camera: stop and destroy the flow, destroy the camera, free the GDC binary.
- *
- * The vnodes are not closed one by one here: they were added to the flow, which owns
- * them, so destroying the flow releases them.
- *
- * @note The vnode handles and @p reset_gpio are unused (the definition casts them to
- *       void). They stay in the signature so a call site lists the same resources it
- *       passed to the *_open() helpers; the reset GPIO is handled by the caller, which
- *       runs sensor_power() itself once the flow is gone.
- *
- * @param[in] vflow       Flow to stop and destroy; 0 skips the flow.
- * @param[in] cam_fd      Camera handle to destroy; 0 is ignored.
- * @param[in] vin,isp,pym,gdc Unused; see the note above.
- * @param[in,out] gdc_bin Buffer returned by gdc_open(); freed and cleared when its fd is
- *                        set, so a second call cannot free it twice.
- * @param[in] reset_gpio  Unused; see the note above.
- */
+/** Tear down one camera: stop and destroy the flow, destroy the camera, free the GDC
+ *  binary. The flow owns the vnodes, so they are not closed individually. */
 void teardown_cam(
     hbn_vflow_handle_t vflow,
     camera_handle_t cam_fd,

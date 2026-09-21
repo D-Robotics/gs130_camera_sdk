@@ -2,20 +2,10 @@
  * @file pym.c
  * @brief pym node: aspect-preserving crop + scaling.
  *
- * S100's counterpart of the X5 VSE node. PYM is a pyramid scaler: the source frame plus
- * up to four downscaled layers (halved, quartered, ...) can be read from, and each
- * enabled output slot names which layer it reads, the crop it takes out of that layer and
- * the size it writes the result at. This backend enables exactly one slot, and pym_open()
- * derives that slot's layer, crop and size from the requested output.
- *
- * An output smaller than the source is served from a reduced layer rather than by scaling
- * the full-resolution one, because the node rejects a region-to-output ratio of 2x or
- * more. The layer, its selector and the crop inside it are covered in pym_layer_pick().
- *
- * Scaling preserves the aspect ratio: aspect_roi() picks a centered crop of the input with
- * the output's aspect ratio and that crop is the source region. The platform's camera
- * stack instead scales the whole base layer to the requested size, which stretches when the
- * aspect ratios differ.
+ * PYM is a pyramid scaler: an output slot names the layer it reads, the crop it takes
+ * from that layer and the size it writes. pym_open() derives all three from the requested
+ * output. An output smaller than the source is served from a reduced layer, because the
+ * node rejects a region-to-output ratio of 2x or more.
  *
  * Buffer counts, handshaking flags and the blanking values follow the platform's S100
  * configuration for this sensor (hobot_mipi_cam,
@@ -43,16 +33,11 @@
 #define GS130_PYM_FB_BUF_NUM     2
 #define GS130_PYM_BUF_NUM        3   /* buffers the caller's output channel is given */
 
-/* The base layer a PYM output smaller than the source is read from: the source halved,
- * quartered, ... down to a sixteenth, each rounded down to an even size, and the smallest
- * that still covers the requested output.
- *
- * Selector 0 names the full-resolution layer; selector 1 names the reduced ones, its layer
- * index counting from zero at the half-resolution layer. An output needing `depth` halvings
- * is therefore selector 1 with layer `depth - 1`. Naming layer `depth` asks for a layer one
- * step too small and the node rejects the configuration.
- *
- * Writes that layer's size through bl_w/bl_h and its selector/layer pair through sel/layer. */
+/* The base layer to read when the output is smaller than the source: the source halved,
+ * quartered, ... down to a sixteenth, each rounded down to an even size, smallest that still
+ * covers the output. Selector 0 is the full-resolution layer; selector 1 the reduced ones,
+ * its layer index counting from zero at half resolution, so a `depth`-halving output is
+ * selector 1 with layer `depth - 1`. Writes bl_w/bl_h and sel/layer. */
 static void pym_layer_pick(uint32_t in_w, uint32_t in_h,
                            uint32_t out_w, uint32_t out_h,
                            uint32_t *bl_w, uint32_t *bl_h,
@@ -166,15 +151,8 @@ int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
     cfg.chn_ctrl.bl_max_layer_en     = GS130_PYM_BL_MAX_EN;
     cfg.chn_ctrl.ds_roi_uv_bypass    = 0;
 
-    /*
-     * One output. The scaling is expressed as "read from this base layer, take this crop
-     * out of it, write it at this size": ds_roi_sel picks the selector (0 or 1),
-     * ds_roi_layer the layer inside it, start_* and region_* the crop measured inside that
-     * layer, and out_* the size it is written at. The node requires the region to fit the
-     * layer (start + region <= layer size) and the region-to-output ratio to stay below
-     * 2x in each direction, which is why a smaller output is served from a reduced layer
-     * instead of by scaling the full-resolution one.
-     */
+    /* One output: ds_roi_sel and ds_roi_layer pick the base layer, start_* and region_*
+     * the crop inside it, out_* the written size. The region has to fit the layer. */
     pym_plan_t plan;
     pym_plan(in_w, in_h, out_w, out_h, &plan);
     cfg.chn_ctrl.ds_roi_sel[0]   = (uint8_t)plan.sel;

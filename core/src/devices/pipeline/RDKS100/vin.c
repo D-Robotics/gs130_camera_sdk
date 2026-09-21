@@ -19,16 +19,10 @@
 
 #include <string.h>
 
-/* RAW10, the sensor's output format and therefore VIN's input and output format. */
 #define GS130_VIN_RAW10 0x2B
 
-/*
- * VCON bus selection. Taken from the platform's S100 configuration for this exact
- * sensor (hobot_mipi_cam, src/s100/sensor/sc132gs_linear_1088x1280_raw10_30fps_1lane.c),
- * which sets both to 2. The platform's camera stack does not derive these from the device
- * tree, so they have to be stated; whether this board uses the same VCON wiring has not
- * been checked on hardware.
- */
+/* VCON buses, from the platform's S100 config for this sensor; the stack does not derive
+ * them from the device tree, so they are stated here. */
 #define GS130_VIN_VCON_BUS_MAIN   2
 #define GS130_VIN_VCON_BUS_SECOND 2
 
@@ -36,12 +30,8 @@
  * configuration uses 6 for this sensor. */
 #define GS130_VIN_BUF_NUM 6
 
-/* Bytes per line of the RAW10 output, aligned up to the DMA engine's 32-byte plane
- * boundary. The ISP derives the stride of its own input the same way
- * (AFRAME_ALIGN_PLANE(width * 10 / 8) in the ISP driver's isp_video_reqbufs_src) and
- * refuses to bind when the two disagree, so this has to be the aligned packed size and
- * not a padded bytes-per-pixel count. For the 1088-wide sensor that is 1088 * 10 / 8 =
- * 1360, rounded up to 1376. */
+/* Bytes per line of the RAW10 output, aligned to the 32-byte plane boundary the ISP also
+ * uses; it refuses the bind when the two strides disagree. 1088 -> 1360 -> 1376. */
 #define GS130_VIN_WSTRIDE_ALIGN 32U
 
 int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
@@ -59,9 +49,7 @@ int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
     attr.vin_node_attr.vcon_attr.bus_main   = GS130_VIN_VCON_BUS_MAIN;
     attr.vin_node_attr.vcon_attr.bus_second = GS130_VIN_VCON_BUS_SECOND;
 
-    /* Capture side. mipi_en turns the receiver on, cim_isp_flyby = 0 keeps VIN offline
-       (it writes to DDR and the ISP reads from there), and cim_pym_flyby = 0 keeps the
-       same for the scaling node. */
+    /* flyby = 0: VIN writes to DDR and the ISP reads from there. */
     attr.vin_node_attr.cim_attr.mipi_en       = 1;
     attr.vin_node_attr.cim_attr.cim_isp_flyby = 0;
     attr.vin_node_attr.cim_attr.cim_pym_flyby = 0;
@@ -70,12 +58,10 @@ int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
     attr.vin_node_attr.cim_attr.ipi_channels  = 1;
     attr.vin_node_attr.cim_attr.y_uv_swap     = 0;   /* RAW10: no luma/chroma swap */
 
-    /* Frame bookkeeping. The counter starts at 0 and every frame carries an id. */
     attr.vin_node_attr.cim_attr.func.enable_frame_id   = 1;
     attr.vin_node_attr.cim_attr.func.set_init_frame_id = 0;
     attr.vin_node_attr.cim_attr.func.enable_pattern    = 0;   /* test pattern off */
 
-    /* No RDMA input: the frames come from the MIPI receiver, not from memory. */
     attr.vin_node_attr.cim_attr.rdma_input.rdma_en = 0;
 
     attr.vin_node_attr.magicNumber = GS130_S100_MAGIC_NUMBER;
@@ -98,8 +84,7 @@ int vin_open(hbn_vnode_handle_t *vin, int mipi_rx,
     attr.vin_ichn_attr.height = height;
     attr.vin_ichn_attr.format = GS130_VIN_RAW10;
 
-    /* Output channel: written to DDR, RAW10 with a 2-byte-per-pixel stride. The number
-       of buffers lives in a separate member of the same wrapper. */
+    /* To DDR, RAW10 with a 2-byte-per-pixel stride. */
     attr.vin_ochn_attr[VIN_MAIN_FRAME].ddr_en = 1;
     attr.vin_ochn_attr[VIN_MAIN_FRAME].vin_basic_attr.format    = GS130_VIN_RAW10;
     attr.vin_ochn_attr[VIN_MAIN_FRAME].vin_basic_attr.wstride   = ochn_wstride;

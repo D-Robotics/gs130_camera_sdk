@@ -9,12 +9,6 @@
  * that at compile time, so a change to RemapPoint (src/types.hpp) must be mirrored in
  * point_t.
  *
- * param_t and window_t are shared between the two generations, so the map handling is the
- * same as X5's. The platform entry points differ: the binary is built with
- * hbn_gen_gdc_cfg() / hbn_free_gdc_cfg() (X5: hbn_gen_gdc_bin() / hbn_free_gdc_bin(), with
- * a uint32_t** output pointer), the node takes one gdc_settings_t for all three setters,
- * and strides are 16-byte aligned.
- *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
  * SPDX-License-Identifier: MIT

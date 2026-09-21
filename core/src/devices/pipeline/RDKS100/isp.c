@@ -1,12 +1,9 @@
 /**
  * @file isp.c
- * @brief isp node: NV12 output written to DDR for the downstream node.
+ * @brief isp node: offline (DDR) ISP, NV12 output.
  *
- * RAW10 frames arriving from VIN are processed here and handed on as NV12, which is the
- * format every later stage (PYM, GDC) and the caller's buffers use.
- *
- * Every mode reads the offline/DDR output, so stream output is disabled and AXI YUV420 is
- * enabled.
+ * RAW10 frames arriving from VIN in DDR are processed here and handed on as NV12,
+ * which is the format every later stage (PYM, GDC) and the caller's buffers use.
  *
  * The function contract (parameters, units, ownership, return value) is documented
  * with the declaration in RDKS100.h.

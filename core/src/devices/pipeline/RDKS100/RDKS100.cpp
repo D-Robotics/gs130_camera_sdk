@@ -48,16 +48,8 @@ constexpr uint32_t kPymHwId = 0;
 // left the nodes unbound.
 constexpr uint32_t kIspSlotBase = 4;
 
-/**
- * @brief Convert a driver frame timestamp to nanoseconds.
- *
- * Preference order: trig_tv (LPWM rising edge = exposure trigger time), then the
- * driver's timestamps field, then tv (the time the frame was ready). IMU pairing needs
- * the exposure time, so the others are fallbacks.
- *
- * @param[in] info Frame information returned with the frame.
- * @return Timestamp in nanoseconds on the device clock.
- */
+/** Convert a driver frame timestamp to nanoseconds. trig_tv (the LPWM exposure trigger)
+ *  is preferred; the driver's timestamps field and tv are fallbacks. */
 uint64_t frame_ts_ns(const hbn_frame_info_t &info)
 {
     if(info.trig_tv.tv_sec != 0 || info.trig_tv.tv_usec != 0)
