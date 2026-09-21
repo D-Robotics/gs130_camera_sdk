@@ -27,11 +27,15 @@
 /* RAW10, the sensor's output format. */
 #define GS130_CAMERA_RAW10 0x2B
 
-/* Number of MIPI lanes the receiver listens on. The GS130 module wires the SC132GS as
- * a single-lane slave, which is also how the X5 backend runs it. The platform's own
- * S100 table for a sc132gs at 1088x1280 states 2, but that table describes the board's
- * separate two-lane self-triggered module rather than this one. */
-#define GS130_CAMERA_LANES 1
+/* Number of MIPI lanes the receiver listens on. The platform's own S100 table for a
+ * sc132gs at 1088x1280 states 2, and the BSP's slave init sequence agrees: in
+ * sc132gs_setting.h both sc132gs_linear_init_1088x1280_30fps_2lane_setting_master[] and
+ * sc132gs_linear_init_1088x1280_30fps_setting_slave[] write 0x3018 = 0x32, whose
+ * bit[7:5] = 001 selects two-lane mode. There is no single-lane init sequence in the
+ * BSP, so a one-lane slave would need a new sensor table rather than a value here.
+ * (Measured: this field does not reach the driver on this board -- the receiver reports
+ * "2 lane" whatever this is set to -- so the sensor's own table is what decides.) */
+#define GS130_CAMERA_LANES 2
 
 /*
  * Sensor mode index. On S100 the platform's camera stack pairs this index with the LPWM
@@ -42,9 +46,10 @@
  * with lpwm enabled, so mode 6 is the matching index; vin_open() enables the same
  * LPWM channels.
  *
- * UNVERIFIED: that mode 6 is the externally triggered mode on S100 has not been checked
- * on this module. If the flow starts but no frame arrives, this is the first value to
- * revisit. See requirement-analysis/jira011-g3-revision.md.
+ * MEASURED (2026-09-21): mode 6 with the LPWM channels enabled streams on this board --
+ * raw/resize/rect all reach 30.00 fps with both eyes carrying identical timestamps -- so
+ * the externally triggered slave branch is the one that matches this module.
+ * See requirement-analysis/jira011-g3-revision.md.
  */
 #define GS130_CAMERA_SENSOR_MODE 6
 

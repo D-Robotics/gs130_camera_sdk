@@ -75,17 +75,6 @@ extern "C" {
 #define GS130_S100_MAGIC_NUMBER 0x12345678u
 
 /**
- * @brief ISP output channel that carries the online frame to the next node.
- *
- * An S100 ISP has two output channels: 0 is the DDR output used by the offline link, and
- * 1 streams the frame on to the node behind it. The platform's own camera stack binds
- * channel 1 for its ISP -> scaling-node link (hobot_mipi_cam sets is_online_isp_pym = 1
- * for its ISP-only scene and passes that value as the source channel of the bind);
- * binding channel 0 leaves the flow unable to start.
- */
-#define GS130_ISP_STREAM_CHN 1u
-
-/**
  * @brief Run the sensor reset sequence on one GPIO.
  *
  * The GPIO is driven through sysfs (export, direction = out) and then pulsed
@@ -160,11 +149,10 @@ int vin_open(
     uint32_t width, uint32_t height, uint32_t fps);
 
 /**
- * @brief Open the ISP node for offline (DDR) processing with NV12 output.
+ * @brief Open the ISP node with online-stream or offline-DDR NV12 output.
  *
- * The ISP is configured through the isp_cfg_t wrapper. Offline operation is selected on
- * the output channel: stream_output_mode is disabled and axi_output_mode is set to the
- * YUV420 format the later stages consume.
+ * All public modes use the offline/DDR YUV420 output on channel 0: Raw reads ISP directly,
+ * Resize binds it to PYM in M2M mode, and Rect binds it through GDC to PYM in M2M mode.
  *
  * @param[out] isp        Receives the ISP vnode handle; set to 0 only when opening the node fails.
  * @param[in]  width,height Frame size in pixels.
@@ -231,7 +219,9 @@ gs130_rect_t aspect_roi(uint32_t in_w, uint32_t in_h,
  * two platforms' outputs comparable and lets the backend reuse its intrinsics update.
  *
  * Unlike VSE, PYM takes one configuration structure for the node attribute, the input
- * channel and the output channel; the same pym_cfg_t is passed to all three setters.
+ * channel and the output channel; the same pym_cfg_t is passed to all three setters. This
+ * backend uses PYM_M2M_MODE because ISP and GDC hand it DDR-backed frames through direct
+ * vnode binds; M2M here does not imply a CPU getframe/sendframe bridge.
  *
  * @param[out] pym        Receives the PYM vnode handle; set to 0 only when opening the node fails.
  * @param[in]  in_w,in_h  Input size in pixels.
@@ -282,33 +272,29 @@ int gdc_open(
 /**
  * @brief Create the vflow, add and bind the nodes, and report where frames come out.
  *
- * The chain is vin -> isp -> pym -> [gdc]; a handle that is 0 is skipped, so Raw
- * (vin alone; this backend leaves the ISP out of that mode), Resize (vin -> isp -> pym)
- * and Rect (vin -> isp -> pym -> gdc) all use this one helper. The order is the
- * platform's: an S100 ISP hands its frame on through its online output, which the
- * platform binds to PYM, and the GDC is always the last node. The camera is attached to
- * VIN last, once the nodes are bound.
+ * All public modes use ISP offline/DDR output channel 0. A zero handle skips a stage:
+ * Raw is vin -> isp, Resize is vin -> isp -> pym, and Rect is
+ * vin -> isp -> gdc -> pym. PYM is the final scaling node in both processed modes, and
+ * GDC only generates the rectified geometry for Rect. The camera is attached to VIN last,
+ * once the nodes are bound.
  *
  * @param[out] vflow      Receives the vflow handle; set to 0 when creation fails.
  * @param[in]  cam_fd     Camera handle to attach to VIN.
  * @param[in]  vin,isp,gdc,pym Vnode handles to add and bind; 0 = stage not present.
  * @param[in]  pym_chn    PYM output channel, used when @p pym is present.
- * @param[out] out_node   Receives the node producing frames: gdc when present,
- *                        otherwise pym, otherwise isp, otherwise vin. Written on
- *                        success only.
+ * @param[in]  gdc_before_pym Non-zero selects ISP -> GDC -> PYM; zero selects
+ *                        ISP -> PYM -> optional GDC.
+ * @param[out] out_node   Receives the last node in the selected chain. Written on success.
  * @param[out] out_chn    Receives the channel to read on @p out_node: pym_chn for PYM
  *                        (which publishes a frame as a group, see get_frame()), 0 for
  *                        GDC, ISP or VIN. Written on success only.
  * @return 0 on success, -1 when a create, add, bind or attach step fails.
  */
-int vflow_build(
-    hbn_vflow_handle_t *vflow,
-    camera_handle_t cam_fd,
-    hbn_vnode_handle_t vin,
-    hbn_vnode_handle_t isp,
-    hbn_vnode_handle_t gdc,
-    hbn_vnode_handle_t pym, uint32_t pym_chn,
-    hbn_vnode_handle_t *out_node, uint32_t *out_chn);
+int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
+                hbn_vnode_handle_t vin, hbn_vnode_handle_t isp,
+                hbn_vnode_handle_t gdc, hbn_vnode_handle_t pym,
+                uint32_t pym_chn, int gdc_before_pym,
+                hbn_vnode_handle_t *out_node, uint32_t *out_chn);
 
 /**
  * @brief Tear down one camera: stop and destroy the flow, destroy the camera, free the GDC binary.

@@ -14,15 +14,15 @@
 int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
                 hbn_vnode_handle_t vin, hbn_vnode_handle_t isp,
                 hbn_vnode_handle_t gdc, hbn_vnode_handle_t pym,
-                uint32_t pym_chn,
+                uint32_t pym_chn, int gdc_before_pym,
                 hbn_vnode_handle_t *out_node, uint32_t *out_chn)
 {
     if (hbn_vflow_create(vflow) != 0) {
         *vflow = 0;
         return -1;
     }
-    // A handle of 0 means the stage is not part of this flow: raw output leaves the ISP
-    // out and reads the capture node instead, so it is absent here.
+    // A handle of 0 means the stage is not part of this flow. Raw has an ISP but no GDC or
+    // PYM; Resize has PYM only; Rect has both GDC and PYM.
     if (hbn_vflow_add_vnode(*vflow, vin) != 0 ||
         (isp != 0 && hbn_vflow_add_vnode(*vflow, isp) != 0) ||
         (gdc != 0 && hbn_vflow_add_vnode(*vflow, gdc) != 0) ||
@@ -30,23 +30,32 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         return -1;
 
     /*
-     * vin -> isp -> pym -> [gdc], or vin alone when there is no ISP.
+     * Two orders, chosen by the caller, after vin -> isp:
      *
-     * The order is the platform's: an S100 ISP hands its frame on through its online
-     * output, and the platform's own camera stack binds that output to PYM and PYM to the
-     * GDC -- never the ISP to the GDC. The GDC is therefore the last node and reads what
-     * PYM wrote, at the size PYM wrote it.
+     *   gdc_before_pym == 0:  isp -> pym -> [gdc]
+     *     PYM scales (it is this platform's VSE equivalent; there is no VSE node on S100)
+     *     and the GDC, when present, only transforms the frame it is handed. Used by
+     *     Resize, including the install-rotation case, and by any flow without a GDC.
+     *
+     *   gdc_before_pym == 1:  isp -> gdc -> pym
+     *     The GDC resamples the sensor frame through the rectification table onto the
+     *     rectified grid, which is NOT the sensor size: stereo_rectify() grows the grid
+     *     until the black borders disappear (1088x1280 -> 1088x1536 on this module), so
+     *     the GDC changes the size. PYM then takes an aspect-preserving window of that
+     *     rectified frame and scales it to the requested output, which is what makes PYM
+     *     (not the GDC) this path's scaling stage.
      */
     if(isp != 0 && hbn_vflow_bind_vnode(*vflow, vin, 0, isp, 0) != 0)return -1;
-    if(pym != 0 && isp != 0){
-        /*
-         * Channel 1 is the ISP's online output; channel 0 is the DDR output of the offline
-         * link, which this backend does not use (see isp_open). The platform binds the same
-         * channel -- its ISP-only scene sets is_online_isp_pym = 1 and passes that value as
-         * the source channel -- and binding channel 0 leaves the flow unable to start. The
-         * node behind the ISP is bound on its input channel 0 in every case.
-         */
-        if(hbn_vflow_bind_vnode(*vflow, isp, GS130_ISP_STREAM_CHN, pym, 0) != 0) return -1;
+    if(pym != 0 && isp != 0 && gdc_before_pym && gdc != 0){
+        if(hbn_vflow_bind_vnode(*vflow, isp, 0, gdc, 0) != 0) return -1;
+        if(hbn_vflow_bind_vnode(*vflow, gdc, 0, pym, 0) != 0) return -1;
+        *out_node = pym;
+        *out_chn  = pym_chn;
+    }
+    else if(pym != 0 && isp != 0){
+        /* All modes use the ISP's offline/DDR YUV420 output on channel 0. Resize binds
+           it directly to PYM; the install-rotation variant appends GDC after PYM. */
+        if(hbn_vflow_bind_vnode(*vflow, isp, 0, pym, 0) != 0) return -1;
         if(gdc != 0){
             if(hbn_vflow_bind_vnode(*vflow, pym, pym_chn, gdc, 0) != 0) return -1;
             *out_node = gdc;
@@ -68,10 +77,8 @@ int vflow_build(hbn_vflow_handle_t *vflow, camera_handle_t cam_fd,
         *out_chn  = 0;
     }
     else{
-        // No ISP in the flow, so the frame comes from the capture node itself. This is
-        // the raw path: the caller receives the sensor's own frame, and the platform's
-        // S100 stack likewise has no scene that reads an ISP output with nothing behind
-        // it -- every one of its scenes ends at a pym node.
+        // No ISP in the flow: this fallback reads the capture node itself. Current public
+        // modes all instantiate ISP; Raw normally reaches the ISP branch above.
         *out_node = vin;
         *out_chn  = 0;
     }

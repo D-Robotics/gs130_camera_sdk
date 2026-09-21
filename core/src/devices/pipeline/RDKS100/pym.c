@@ -84,6 +84,29 @@ static void pym_layer_pick(uint32_t in_w, uint32_t in_h,
     *layer = (depth == 0) ? 0u : depth - 1u;
 }
 
+typedef struct {
+    uint32_t sel, layer;
+    uint32_t bl_w, bl_h;
+    uint32_t start_left, start_top;
+    uint32_t region_w, region_h;
+    uint32_t out_w, out_h;
+} pym_plan_t;
+
+static void pym_plan(uint32_t in_w, uint32_t in_h,
+                     uint32_t out_w, uint32_t out_h, pym_plan_t *p)
+{
+    const gs130_rect_t roi = aspect_roi(in_w, in_h, out_w, out_h);
+
+    pym_layer_pick(in_w, in_h, out_w, out_h,
+                   &p->bl_w, &p->bl_h, &p->sel, &p->layer);
+    p->out_w = out_w;
+    p->out_h = out_h;
+    p->start_left = (roi.x * p->bl_w) / in_w;
+    p->start_top  = (roi.y * p->bl_h) / in_h;
+    p->region_w = ((roi.w * p->bl_w) / in_w) & ~1u;
+    p->region_h = ((roi.h * p->bl_h) / in_h) & ~1u;
+}
+
 int roi_ratio_exact(uint32_t in_w, uint32_t in_h,
                     uint32_t out_w, uint32_t out_h)
 {
@@ -118,15 +141,14 @@ gs130_rect_t aspect_roi(uint32_t in_w, uint32_t in_h,
 int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
              uint32_t out_w, uint32_t out_h, uint32_t hw_id, uint32_t slot_id)
 {
-    const gs130_rect_t roi = aspect_roi(in_w, in_h, out_w, out_h);
-
     pym_cfg_t cfg = { 0 };
 
-    /* Node identity: which PYM instance and slot this eye uses, in explicit
-       (non-fly-by) mode. */
+    /* Node identity. M2M accepts an upstream DDR-backed frame from ISP or GDC and still
+       participates in the same vflow through a direct vnode bind; it does not imply a
+       CPU getframe/sendframe bridge. */
     cfg.hw_id    = hw_id;
     cfg.slot_id  = slot_id;
-    cfg.pym_mode = PYM_MANUAL_MODE;
+    cfg.pym_mode = PYM_M2M_MODE;
 
     /* Buffer counts and handshaking, as in the platform's S100 configuration. */
     cfg.pingpong_ring        = 0;
@@ -164,10 +186,10 @@ int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
      * 2x in each direction, which is why a smaller output is served from a reduced layer
      * instead of by scaling the full-resolution one.
      */
-    uint32_t bl_w = in_w, bl_h = in_h, bl_sel = 0, bl_layer = 0;
-    pym_layer_pick(in_w, in_h, out_w, out_h, &bl_w, &bl_h, &bl_sel, &bl_layer);
-    cfg.chn_ctrl.ds_roi_sel[0]   = (uint8_t)bl_sel;
-    cfg.chn_ctrl.ds_roi_layer[0] = (uint8_t)bl_layer;
+    pym_plan_t plan;
+    pym_plan(in_w, in_h, out_w, out_h, &plan);
+    cfg.chn_ctrl.ds_roi_sel[0]   = (uint8_t)plan.sel;
+    cfg.chn_ctrl.ds_roi_layer[0] = (uint8_t)plan.layer;
     cfg.chn_ctrl.ds_roi_en       = (uint8_t)(1u << 0);
 
     roi_box_t *box = &cfg.chn_ctrl.ds_roi_info[0];
@@ -176,10 +198,10 @@ int pym_open(hbn_vnode_handle_t *pym, uint32_t in_w, uint32_t in_h,
        offset puts the region past the end of the layer and the configuration is rejected;
        both the offset and the size therefore scale from source coordinates into the layer,
        which for the full-resolution layer is the identity. */
-    box->start_left    = (uint16_t)(roi.x * bl_w / in_w);
-    box->start_top     = (uint16_t)(roi.y * bl_h / in_h);
-    box->region_width  = (uint16_t)(roi.w * bl_w / in_w);
-    box->region_height = (uint16_t)(roi.h * bl_h / in_h);
+    box->start_left    = (uint16_t)plan.start_left;
+    box->start_top     = (uint16_t)plan.start_top;
+    box->region_width  = (uint16_t)plan.region_w;
+    box->region_height = (uint16_t)plan.region_h;
     box->out_width     = out_w;
     box->out_height    = out_h;
     box->wstride_y     = GS130_ALIGN_16(out_w);

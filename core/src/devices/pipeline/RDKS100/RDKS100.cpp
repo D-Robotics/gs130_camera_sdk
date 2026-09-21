@@ -89,70 +89,13 @@ uint64_t frame_ts_ns(const hbn_frame_info_t &info)
            static_cast<uint64_t>(info.tv.tv_usec) * 1000ULL;
 }
 
-/**
- * @brief Resample a dense remap table onto another grid.
- *
- * S100 puts the GDC last, so its table has to be laid out on the grid it writes; the
- * table stereo_rectify() returns is laid out on the rectified grid instead. The entries
- * for the requested output are therefore taken by bilinear sampling the rectified table
- * over the crop aspect_roi() selected. Interpolating between entries is meaningful
- * because every entry holds the same thing: a position in the source image.
- *
- * @param[in] src   Rectified table, src_w * src_h entries in row-major order.
- * @param[in] src_w Width of the rectified grid, in entries.
- * @param[in] src_h Height of the rectified grid, in entries.
- * @param[in] roi   Crop of the rectified grid the output covers, in grid entries.
- * @param[in] dst_w Requested output width, in pixels.
- * @param[in] dst_h Requested output height, in pixels.
- * @return dst_w * dst_h entries; zero-filled when src is smaller than the grid it claims.
- */
-std::vector<RemapPoint> resample_map(const std::vector<RemapPoint> &src,
-                                     uint32_t src_w, uint32_t src_h,
-                                     const gs130_rect_t &roi,
-                                     uint32_t dst_w, uint32_t dst_h)
-{
-    std::vector<RemapPoint> dst(static_cast<std::size_t>(dst_w) * dst_h);
-    if(src.size() < static_cast<std::size_t>(src_w) * src_h)return dst;
-
-    const double step_x = static_cast<double>(roi.w) / dst_w;
-    const double step_y = static_cast<double>(roi.h) / dst_h;
-
-    for(uint32_t v = 0; v < dst_h; v++){
-        for(uint32_t u = 0; u < dst_w; u++){
-            // Output pixel centre, measured in entries of the rectified grid
-            const double gx = roi.x + (u + 0.5) * step_x - 0.5;
-            const double gy = roi.y + (v + 0.5) * step_y - 0.5;
-
-            const double cx = std::min(std::max(gx, 0.0), static_cast<double>(src_w) - 1.0);
-            const double cy = std::min(std::max(gy, 0.0), static_cast<double>(src_h) - 1.0);
-
-            const uint32_t x0 = static_cast<uint32_t>(cx);
-            const uint32_t y0 = static_cast<uint32_t>(cy);
-            const uint32_t x1 = std::min(x0 + 1, src_w - 1);
-            const uint32_t y1 = std::min(y0 + 1, src_h - 1);
-            const double   fx = cx - x0;
-            const double   fy = cy - y0;
-
-            const RemapPoint &p00 = src[static_cast<std::size_t>(y0) * src_w + x0];
-            const RemapPoint &p10 = src[static_cast<std::size_t>(y0) * src_w + x1];
-            const RemapPoint &p01 = src[static_cast<std::size_t>(y1) * src_w + x0];
-            const RemapPoint &p11 = src[static_cast<std::size_t>(y1) * src_w + x1];
-
-            RemapPoint &out = dst[static_cast<std::size_t>(v) * dst_w + u];
-            out.x = (p00.x * (1.0 - fx) + p10.x * fx) * (1.0 - fy) +
-                    (p01.x * (1.0 - fx) + p11.x * fx) * fy;
-            out.y = (p00.y * (1.0 - fx) + p10.y * fx) * (1.0 - fy) +
-                    (p01.y * (1.0 - fx) + p11.y * fx) * fy;
-        }
-    }
-    return dst;
-}
 
 } // namespace
 
 struct Pipeline::Impl {
     bool probed     = false;   // both sensors answered the chip-id probe
     bool inited = false;   // stream built
+    bool hb_mem_opened = false;   // hb_mem_module_open() has been called and not closed
 
     // Per-camera resources, passed one by one when calling the node helpers.
     // Handle 0 means "stage not present" for vflow_build(); the flow owns the nodes
@@ -174,7 +117,9 @@ struct Pipeline::Impl {
     // out of the frame the scaling stages read that the output covers; the intrinsics
     // correction at the end of init() is expressed with it.
     uint32_t input_w = 0, input_h = 0, output_w = 0, output_h = 0;
-    uint32_t mid_w = 0, mid_h = 0;
+    uint32_t mid_w = 0, mid_h = 0;       /* size PYM writes (and the node after it reads) */
+    uint32_t pym_in_w = 0, pym_in_h = 0;  /* size PYM reads: the sensor frame, or the GDC's
+                                           * rectified frame on Rect */
     gs130_rect_t output_roi{};
     int install_angle = 0;   // degrees, normalized to [0, 360)
 };
@@ -229,8 +174,18 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
     if(impl_->inited)return Status::ParamError;
 
     hb_mem_module_open();   // hold the hb_mem module for the pipeline's whole lifetime
+    impl_->hb_mem_opened = true;
 
-    // Geometry parameters
+    // Geometry parameters. A zero size is rejected up front: aspect_roi() and
+    // roi_ratio_exact() divide by the requested width and height, so a zero would fault
+    // instead of being reported as a parameter error. Everything after the hb_mem_module_open()
+    // above leaves through deinit(), which is what releases that module again.
+    if(cfg.sensor_width == 0 || cfg.sensor_height == 0 ||
+       cfg.output_width == 0 || cfg.output_height == 0){
+        deinit();
+        return Status::ParamError;
+    }
+
     impl_->input_w = cfg.sensor_width;
     impl_->input_h = cfg.sensor_height;
     impl_->output_w = cfg.output_width;
@@ -239,14 +194,19 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
     // Raw mode hands the sensor frame through untouched: the requested output size
     // must therefore be the sensor size
     if(cfg.mode == OutputMode::Raw)
-        if(cfg.sensor_width != cfg.output_width || cfg.sensor_height != cfg.output_height)
+        if(cfg.sensor_width != cfg.output_width || cfg.sensor_height != cfg.output_height){
+            deinit();
             return Status::ParamError;
+        }
 
     // Determine mipi_rx and reset_gpio; both are keyed by the bus the eye was found on.
     // The same pass fixes each eye's node slot, so the two eyes cannot share one.
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
         const int bus = impl_->cam[i].i2c_bus;
-        if(bus < 0 || bus >= 32 || cfg.bus_mipi_rx[bus] == 0xFF)return Status::ParamError;
+        if(bus < 0 || bus >= 32 || cfg.bus_mipi_rx[bus] == 0xFF){
+            deinit();
+            return Status::ParamError;
+        }
 
         impl_->cam[i].mipi_rx    = cfg.bus_mipi_rx[bus];
         impl_->cam[i].reset_gpio = cfg.bus_reset_gpio[bus];
@@ -285,33 +245,41 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         }
     }
 
-    // ISP node. Raw output is the sensor's own frame, so that mode leaves the ISP out of
-    // the flow and reads the capture node instead (see vflow_build); every other mode
-    // runs the frame through the ISP.
-    if(cfg.mode != OutputMode::Raw){
-        for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
-            int ret = isp_open(
-                &impl_->cam[i].isp,
-                impl_->input_w, impl_->input_h,
-                kIspHwId, impl_->cam[i].isp_slot, cfg.fps);
-            if(ret){
-                deinit();
-                return Status::HwError;
-            }
+    // Every mode runs VIN through the ISP and uses the offline/DDR YUV420 output on
+    // channel 0. Raw reads it directly; Resize binds it to PYM; Rect binds it through GDC.
+    for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+        int ret = isp_open(
+            &impl_->cam[i].isp,
+            impl_->input_w, impl_->input_h,
+            kIspHwId, impl_->cam[i].isp_slot, cfg.fps);
+        if(ret){
+            deinit();
+            return Status::HwError;
         }
     }
 
     /*
-     * Scaling geometry. PYM always reads the sensor frame and writes mid_w x mid_h; the
-     * GDC, when the flow has one, reads mid_w x mid_h and writes the requested output.
-     * The modes differ only in how mid_* is chosen and in which crop the intrinsics
-     * correction further down assumes.
+     * Scaling geometry. pym_in_* is what PYM reads, mid_* what it writes, and the crop the
+     * intrinsics correction further down assumes is output_roi.
      *
-     * Node order is a platform property: on S100 the GDC is LAST. The platform's own
-     * camera stack binds pym -> gdc and never isp -> gdc, because an S100 ISP hands its
-     * frame to PYM through its online output. Rect therefore rectifies what PYM passed
-     * through, and PYM itself is an identity stage at the sensor size.
+     *   Raw:    no GDC or PYM; the ISP's offline/DDR YUV420 frame is read.
+     *   Resize: PYM reads the sensor frame and writes the requested size. A GDC is present
+     *           only when an install rotation needs one, and then it transforms the scaled
+     *           frame without changing what PYM wrote.
+     *   Rect:   the GDC runs FIRST and rectifies the sensor frame through the
+     *           rectification table onto the rectified grid. That grid is not the sensor
+     *           size -- stereo_rectify() grows it until no black border remains
+     *           (1088x1280 -> 1088x1536 on this module) -- so the GDC resamples to a
+     *           different size, exactly as the X5 path does. PYM then takes an
+     *           aspect-preserving window of the rectified frame and scales it to the
+     *           requested output: PYM is this path's scaling stage, and the GDC's own
+     *           output size is the rectification grid rather than the user's request.
      */
+    // PYM reads the sensor frame unless a mode says otherwise (Rect reads what the GDC
+    // rectified), and writes the mode's intermediate size.
+    impl_->pym_in_w = impl_->input_w;
+    impl_->pym_in_h = impl_->input_h;
+
     if(cfg.mode == OutputMode::Raw){
         impl_->mid_w = impl_->input_w;
         impl_->mid_h = impl_->input_h;
@@ -347,38 +315,29 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
                 return Status::Unsupported;
             }
 
-            // ROI divisibility check (guard against integer-division truncation)
-            if(roi_ratio_exact(rect_w, rect_h,
-                               impl_->output_w, impl_->output_h) != 0){
-                deinit();
-                return Status::Unsupported;
-            }
-
-            // The rectified image is cropped to the requested aspect ratio and written at
-            // the requested size. The GDC does both in one pass, so its tables are
-            // generated on the output grid; the grid is also the size it writes.
-            impl_->output_roi = aspect_roi(rect_w, rect_h,
-                                           impl_->output_w, impl_->output_h);
-            for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
-                map[i] = resample_map(map[i], rect_w, rect_h, impl_->output_roi,
-                                      impl_->output_w, impl_->output_h);
-            }
-
-            // gdc_open per camera; it reads the untouched sensor frame PYM handed over
+            // The GDC rectifies onto the grid stereo_rectify() chose, which is larger than
+            // the sensor frame (1088x1280 -> 1088x1536 here); its output size is that grid,
+            // not the requested output. This mirrors the X5 path, which also hands the
+            // rectified grid on to its scaling stage.
             for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
                 int ret = gdc_open(
                     &impl_->cam[i].gdc, &impl_->cam[i].gdc_bin,
                     map[i].data(), impl_->input_w, impl_->input_h,
-                    impl_->output_w, impl_->output_h, impl_->install_angle);
+                    rect_w, rect_h, impl_->install_angle);
                 if(ret){
                     deinit();
                     return Status::HwError;
                 }
             }
 
-            // PYM passes the sensor frame through unchanged
-            impl_->mid_w = impl_->input_w;
-            impl_->mid_h = impl_->input_h;
+            // PYM now reads the rectified frame and scales it to the requested size; the
+            // aspect crop it takes is the crop reported to the caller.
+            impl_->pym_in_w = rect_w;
+            impl_->pym_in_h = rect_h;
+            impl_->mid_w    = impl_->output_w;
+            impl_->mid_h    = impl_->output_h;
+            impl_->output_roi = aspect_roi(rect_w, rect_h,
+                                           impl_->output_w, impl_->output_h);
         }
         else if(impl_->install_angle != 0){
             // Resize with an install rotation: PYM scales and the GDC only rotates. The
@@ -423,10 +382,14 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
                                            impl_->mid_w, impl_->mid_h);
     }
 
-    // PYM node: reads the sensor frame and writes mid_w x mid_h
+    // PYM node: reads pym_in_w x pym_in_h (the sensor frame, or the GDC's rectified
+    // frame on Rect) and writes mid_w x mid_h
     if(cfg.mode != OutputMode::Raw){
-        // ROI divisibility check (guard against integer-division truncation)
-        if(roi_ratio_exact(impl_->input_w, impl_->input_h,
+        // The caller chooses the output size; there is no supported-size table here. The
+        // aspect crop is the one thing that must line up before the node is opened, since
+        // output_roi is derived from it. Any size the hardware cannot serve is left to
+        // fail in pym_open(), which fails init.
+        if(roi_ratio_exact(impl_->pym_in_w, impl_->pym_in_h,
                            impl_->mid_w, impl_->mid_h) != 0){
             deinit();
             return Status::Unsupported;
@@ -435,7 +398,7 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         // pym_open per camera
         for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
             int ret = pym_open(
-                &impl_->cam[i].pym, impl_->input_w, impl_->input_h,
+                &impl_->cam[i].pym, impl_->pym_in_w, impl_->pym_in_h,
                 impl_->mid_w, impl_->mid_h,
                 kPymHwId, impl_->cam[i].isp_slot);
             if(ret){
@@ -459,14 +422,15 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
         }
     }
 
-    // Bind each eye's nodes into its own flow and remember the node/channel to fetch
-    // frames from (Raw: ISP, Resize: PYM, Rect: PYM behind GDC)
+    // Bind each eye's nodes into its own flow and remember the node/channel to fetch frames
+    // from (Raw: ISP, Resize: PYM, Rect: PYM, which reads what the GDC rectified)
+    const int gdc_before_pym = (cfg.mode == OutputMode::Rect) ? 1 : 0;
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
         int ret = vflow_build(
             &impl_->cam[i].vflow, impl_->cam[i].cam_fd,
             impl_->cam[i].vin, impl_->cam[i].isp,
             impl_->cam[i].gdc, impl_->cam[i].pym,
-            0,
+            0, gdc_before_pym,
             &impl_->cam[i].output_node, &impl_->cam[i].output_chn);
         if(ret){
             deinit();
@@ -480,10 +444,28 @@ Status Pipeline::init(const PipelineConfig &cfg, StereoImuModel *cal)
 
 void Pipeline::deinit()
 {
-    if(!impl_->inited)
-        return;
+    /*
+     * Release whatever init() managed to open. init() calls this on EVERY failure path,
+     * and at that point inited is still false, so an "if(!inited) return" guard here would
+     * make cleanup a no-op: the sensor, the flow and the hb_mem module would stay open and
+     * the process could not initialise again (a retry with a valid size returned HW_ERROR).
+     * teardown_cam() ignores zero handles, so running it unconditionally is safe.
+     */
 
     for(std::size_t i = 0; i < static_cast<std::size_t>(CamIndex::Num); i++){
+        /*
+         * teardown_cam() relies on the flow owning the nodes, which only becomes true once
+         * vflow_build() has added them. init() opens the nodes WELL BEFORE that, so a
+         * failure in between (a rejected output size, an unopenable stage) leaves them
+         * open with no flow to release them. Close them here in that case; when the flow
+         * does exist it owns them and hbn_vflow_destroy() releases them.
+         */
+        if(impl_->cam[i].vflow == 0){
+            if(impl_->cam[i].vin)hbn_vnode_close(impl_->cam[i].vin);
+            if(impl_->cam[i].isp)hbn_vnode_close(impl_->cam[i].isp);
+            if(impl_->cam[i].pym)hbn_vnode_close(impl_->cam[i].pym);
+            if(impl_->cam[i].gdc)hbn_vnode_close(impl_->cam[i].gdc);
+        }
         teardown_cam(impl_->cam[i].vflow, impl_->cam[i].cam_fd,
                      impl_->cam[i].vin, impl_->cam[i].isp,
                      impl_->cam[i].pym, impl_->cam[i].gdc,
@@ -505,7 +487,10 @@ void Pipeline::deinit()
     }
 
     impl_->inited = false;
-    hb_mem_module_close();
+    if(impl_->hb_mem_opened){
+        hb_mem_module_close();
+        impl_->hb_mem_opened = false;
+    }
 }
 
 Status Pipeline::start(CamIndex first)
@@ -552,20 +537,16 @@ Status Pipeline::get_frame(CamIndex idx,
     const std::size_t i = static_cast<std::size_t>(idx);
     auto &c = impl_->cam[i];
 
-    /*
-     * PYM publishes a frame as one GROUP rather than as a single image, because its
-     * pyramid slots share the frame they were derived from, and the platform reads it with
-     * hbn_vnode_getframe_group(). Every other node in these flows publishes a single image
-     * and is read with hbn_vnode_getframe(); asking PYM for a single image returns no frame
-     * at all, which is why a Resize stream used to start cleanly and then stay empty. In
-     * both cases the requested output is channel pym_chn, i.e. entry 0.
-     */
+    /* ISP and PYM publish frame groups on S100. PYM groups its pyramid slots, while the
+     * platform also marks direct ISP output as stream_group=1. GDC publishes one image.
+     * Asking either grouped producer for a single image starts the flow but never returns a
+     * frame. The requested image is entry output_chn in the returned group. */
     hbn_vnode_image_t img;
     hbn_vnode_image_group_t grp;
     memset(&img, 0, sizeof(img));
     memset(&grp, 0, sizeof(grp));
 
-    const bool grouped = (c.pym != 0 && c.output_node == c.pym);
+    const bool grouped = (c.output_node == c.pym || c.output_node == c.isp);
     if(grouped){
         if(hbn_vnode_getframe_group(c.output_node, c.output_chn, timeout_ms, &grp) != 0)
             return Status::Timeout;
@@ -576,6 +557,15 @@ Status Pipeline::get_frame(CamIndex idx,
 
     const hb_mem_graphic_buf_t &buf =
         grouped ? grp.buf_group.graph_group[c.output_chn] : img.buffer;
+
+    // The node's buffers are allocated CACHED and written by the hardware, so the CPU's
+    // view has to be invalidated before the planes below are read; otherwise a read can
+    // hit a stale cache line. The platform's own capture path does the same immediately
+    // after hbn_vnode_getframe (hobot_mipi_cam, src/s100/hobot_mipi_cap_iml.cpp).
+    if(buf.virt_addr[0] != nullptr)
+        hb_mem_invalidate_buf_with_vaddr((uint64_t)buf.virt_addr[0], buf.size[0]);
+    if(buf.plane_cnt > 1 && buf.virt_addr[1] != nullptr)
+        hb_mem_invalidate_buf_with_vaddr((uint64_t)buf.virt_addr[1], buf.size[1]);
 
     // Check width/height; report error on mismatch, the caller's geometry is not
     // converted or cropped here

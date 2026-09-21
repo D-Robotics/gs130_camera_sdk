@@ -1,18 +1,13 @@
 /**
  * @file isp.c
- * @brief isp node: online ISP, NV12 output handed straight to the next node.
+ * @brief isp node: NV12 output written to DDR for the downstream node.
  *
  * RAW10 frames arriving from VIN are processed here and handed on as NV12, which is the
  * format every later stage (PYM, GDC) and the caller's buffers use.
  *
- * On S100 the node is described by one isp_cfg_t wrapper (isp_attr + ichn_attr +
- * ochn_attr), and the link to the next node is selected on the output channel rather than
- * through an input-mode enum: stream_output_mode enables the online output and
- * axi_output_mode is disabled. There is no DDR_MODE and no FRM_FMT_NV12 here.
- *
- * This backend always runs the ISP online, because Raw leaves the ISP out of the flow
- * altogether and every mode that keeps it has a node behind it. See isp_open() for what
- * the platform's own camera stack does and why the offline link is not an option.
+ * Every public mode uses the offline/DDR output: stream output is disabled, AXI YUV420 is
+ * enabled and the ISP owns three output buffers. Raw reads that frame directly; Resize and
+ * Rect bind it to their downstream hardware nodes.
  *
  * The function contract (parameters, units, ownership, return value) is documented
  * with the declaration in RDKS100.h.
@@ -77,17 +72,8 @@ int isp_open(hbn_vnode_handle_t *isp, uint32_t width, uint32_t height,
     cfg.ochn_attr.output_raw_level       = 0;   /* ISP_OUTPUT_RAW_LEVEL_SENSOR_DATA */
     cfg.ochn_attr.buf_num                = GS130_ISP_BUF_NUM;
 
-    /*
-     * Online operation: the ISP hands its frame straight to the node behind it instead of
-     * writing it to DDR, which is the only link the platform's S100 camera stack uses
-     * between the ISP and the pipeline's scaling node. Its ISP_ONLY scene sets
-     * is_online_isp_pym = 1 whenever the sensor carries a PYM configuration, and
-     * create_isp_node() then selects STREAM_OUTPUT_MODE_ENABLE with the DDR output mode
-     * disabled. This backend never has an ISP without a node behind it -- Raw leaves the
-     * ISP out of the flow altogether -- so the online link is unconditional here.
-     */
-    cfg.ochn_attr.stream_output_mode = STREAM_OUTPUT_MODE_ENABLE;
-    cfg.ochn_attr.axi_output_mode    = AXI_OUTPUT_MODE_DISABLE;
+    cfg.ochn_attr.stream_output_mode = STREAM_OUTPUT_MODE_DISABLE;
+    cfg.ochn_attr.axi_output_mode    = AXI_OUTPUT_MODE_YUV420;
 
     if (hbn_vnode_open(HB_ISP, hw_id, AUTO_ALLOC_ID, isp) != 0) {
         *isp = 0;
@@ -98,10 +84,14 @@ int isp_open(hbn_vnode_handle_t *isp, uint32_t width, uint32_t height,
         hbn_vnode_set_ichn_attr(*isp, 0, &cfg.ichn_attr) != 0)
         return -1;
 
-    /*
-     * No output buffers: the platform's create_isp_node() allocates them only for the
-     * offline link (!is_online), because an online output is consumed by the next node
-     * rather than read back by this process.
-     */
+    hbn_buf_alloc_attr_t alloc_attr = { 0 };
+    alloc_attr.buffers_num = GS130_ISP_BUF_NUM;
+    alloc_attr.is_contig = 1;
+    alloc_attr.flags = HB_MEM_USAGE_CPU_READ_OFTEN |
+                       HB_MEM_USAGE_CPU_WRITE_OFTEN |
+                       HB_MEM_USAGE_CACHED;
+    if (hbn_vnode_set_ochn_buf_attr(*isp, 0, &alloc_attr) != 0)
+        return -1;
+
     return 0;
 }
