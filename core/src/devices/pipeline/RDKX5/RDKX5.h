@@ -2,16 +2,14 @@
  * @file RDKX5.h
  * @brief RDK X5 node helpers: one C function per pipeline stage, plus teardown.
  *
- * Internal header of the RDK X5 backend. It is included by RDKX5.cpp (the platform
- * backend selected at build time) and by the node .c files next to it, never by
- * platform-independent code, because it pulls in the RDK X5 / Horizon driver headers.
+ * Internal header of the RDK X5 backend, included by RDKX5.cpp and the node .c files
+ * next to it, never by platform-independent code, because it pulls in the platform's
+ * driver headers.
  *
- * There is no shared context: each helper takes the handles, geometry and parameters
- * it needs, so a node can be read (and reused) on its own. The stage helpers all
- * return 0 on success and -1 on failure. Handles and memory-manager buffers are
- * reported through out-parameters and belong to the caller after creation; partially
- * configured handles may remain non-zero on a later setup failure and must be cleaned
- * up by the backend. GDC buffers are freed by teardown_cam().
+ * Handles and memory-manager buffers are reported through out-parameters and belong to
+ * the caller after creation; partially configured handles may remain non-zero on a later
+ * setup failure and must be cleaned up by the backend. GDC buffers are freed by
+ * teardown_cam().
  *
  * This file is part of gs130_camera_sdk (https://github.com/D-Robotics/gs130_camera_sdk).
  * Copyright (c) 2026 D-Robotics.
