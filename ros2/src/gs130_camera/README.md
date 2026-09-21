@@ -121,6 +121,7 @@ Either way the node also publishes:
 | `frame_id` | `camera_link` | Frame of the left eye and of the combined frame |
 | `right_frame_id` | `camera_right_link` | Frame of the right eye |
 | `imu_frame_id` | `imu_link` | Frame the IMU samples are stamped with |
+| `tuning_file` | empty | ISP effect library; **empty keeps the platform preset** (`lib_sc132gs_linear.so` on S100), `disable` loads **no tuning**, any other value loads that library (resolved by name under `/usr/hobot/lib/sensor/`, no full path needed) |
 
 `output_width`, `output_height`, `fps` and `odr` must be positive integers, `timer_period_ms` must be positive, and `camera_mode` and `stitch` must be one of the values listed above; otherwise the node fails at startup.
 

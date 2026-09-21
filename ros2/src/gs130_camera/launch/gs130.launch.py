@@ -52,6 +52,13 @@ ARGUMENTS = (
     ("frame_id", "camera_link", str, "Frame of the left eye and of the stitched frame"),
     ("right_frame_id", "camera_right_link", str, "Frame of the right eye"),
     ("imu_frame_id", "imu_link", str, "Frame the IMU samples are stamped with"),
+    (
+        "tuning_file",
+        "",
+        str,
+        "ISP effect library to load; empty keeps the platform default, "
+        "'disable' loads none",
+    ),
 )
 
 

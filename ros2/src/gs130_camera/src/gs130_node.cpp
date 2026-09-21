@@ -226,6 +226,9 @@ private:
   std::string left_image_topic_;
   std::string right_image_topic_;
   std::string imu_topic_;
+  // ISP tuning override. Empty keeps whatever the platform preset names; a value replaces
+  // it, and the platform reads the literal "disable" as "load no tuning".
+  std::string tuning_file_;
   std::string frame_id_;
   std::string right_frame_id_;
   std::string imu_frame_id_;
@@ -292,6 +295,10 @@ void Gs130Node::declare_parameters()
   camera_mode_ = declare_parameter<std::string>("camera_mode", "rect");
   stitch_ = declare_parameter<std::string>("stitch", "none");
 
+  // Empty leaves the platform preset's own choice in place; "disable" means load no tuning
+  // at all, which is the literal the platform's camera stack treats as "no effect library".
+  tuning_file_ = declare_parameter<std::string>("tuning_file", "");
+
   // Topic parameters default to the existing mipi_cam naming convention. CameraInfo
   // and grayscale topic names are derived from their corresponding image topic.
   image_topic_ = declare_parameter<std::string>("image_topic", "image_combine");
@@ -331,9 +338,17 @@ void Gs130Node::declare_parameters()
 gs130_config_t Gs130Node::build_config() const
 {
   // Keep the GNU C preset macro in config.c; this translation unit remains C++17.
-  return gs130_camera_config_from_define(
+  gs130_config_t config = gs130_camera_config_from_define(
     device_model_.c_str(), camera_mode_of(camera_mode_),
     eye_width_, eye_height_, fps_, odr_, stitch_of(stitch_));
+
+  // The preset names the platform's default effect library. An empty parameter keeps it;
+  // anything else replaces it, so "disable" (or any library name) can be chosen per launch.
+  // tuning_file_ outlives the returned struct, which is borrowed until gs130_init returns.
+  if (!tuning_file_.empty()) {
+    config.camera_config.tuning_file = tuning_file_.c_str();
+  }
+  return config;
 }
 
 void Gs130Node::open_device()

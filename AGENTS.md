@@ -101,7 +101,7 @@ TROS launches (need `hobot_codec`, `websocket`, `hobot_stereonet`): `source /opt
 ## Rules
 
 - Comment/doc work: zero token changes in code. Verify, do not assume.
-- Never document unsupported capability. Implemented backends = directories under `core/src/devices/pipeline/`; anything else makes `GS130_CONFIG_PLATFORM` print and `exit(1)`. Today: RDKX5 only; S100/S600 are "in development".
+- Never document unsupported capability. Implemented backends = directories under `core/src/devices/pipeline/`; anything else makes `GS130_CONFIG_PLATFORM` print and `exit(1)`. RDKX5 is the supported backend. `RDKS100/` holds an S100 port that has **not been built or run** — it needs an S100 sysroot (the platform headers are not in `INCLUDES`; they come from the toolchain) and an S100 board, so it must not be described as supported until a build and a device run exist. S600 has no directory at all.
 - Project is a developer preview (Alpha). Label it as such in user-facing documents. The
   stage shows up as a suffix on release tags (`0.1.0-Alpha`) and not inside `VERSION`, which
   holds three plain numbers; see the release rule below.
