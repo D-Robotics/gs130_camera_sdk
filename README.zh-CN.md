@@ -23,11 +23,11 @@ GS130 Camera SDK 提供在 RDK 系列开发板上使用 GS130 双目相机及板
 ## 🧩 依赖
 
 - **硬件**：RDK 系列开发板与 GS130 系列双目相机。部分机型带 IMU。
-- **Core**：地平线多媒体库（`libvpf`、`libhbmem` 与 `libcam`，安装于 `/usr/hobot/lib`）、OpenCV 4 开发头文件、`libtbb.so.2`，以及支持 C11 与 C++17 的 GCC 工具链。
+- **Core**：地平线多媒体库（`libvpf`、`libhbmem` 与 `libcam`，安装于 `/usr/hobot/lib`）、OpenCV 4 开发头文件、TBB 共享库（`libtbb.so.2` 或 `libtbb.so.12`，按镜像实际安装的解析）、镜像中静态 OpenCV 所引用的 OpenGL 与 LAPACK 共享库（`libGL.so.1`、`liblapack.so.3`），以及支持 C11 与 C++17 的 GCC 工具链。
 - **Python 封装**：Python 3.10 或更高版本与 `numpy`；构建 wheel 还需要 `setuptools` 与 `wheel`。
 - **ROS 2 封装**：ROS 2 Humble 或 Jazzy。网页预览与双目深度两个 launch 还需要 TROS 的 `hobot_codec`、`websocket` 与 `hobot_stereonet`。
 
-本版本实现了 RDK X5 与 RDK S100 后端，RDK S600 的支持仍在开发中。
+本版本实现了 RDK X5、RDK S100 与 RDK S600 后端。
 
 ## 🗂️ 仓库结构
 

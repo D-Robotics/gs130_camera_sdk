@@ -14,12 +14,12 @@
 | --- | --- |
 | Language | C++17 (node) + C99 (SDK preset bridge) |
 | Build | `ament_cmake` / `colcon` |
-| Platform | RDK X5, RDK S100 (RDK S600 in development) |
+| Platform | RDK X5, RDK S100, RDK S600 |
 | Requires | ROS 2 Humble or Jazzy, `libgs130.so` |
 
 ## 🧩 Dependencies
 
-- **Hardware**: an RDK series development board with a GS130 series stereo camera (some models include an IMU). Currently supported: **RDK X5** and **RDK S100**; RDK S600 support is in development.
+- **Hardware**: an RDK series development board with a GS130 series stereo camera (some models include an IMU). Currently supported: **RDK X5**, **RDK S100** and **RDK S600**.
 - **ROS 2**: Humble or Jazzy. Source the distribution installed on the board, and on a TROS system source the TROS overlay after it:
 
   ```bash
