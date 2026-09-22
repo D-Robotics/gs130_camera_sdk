@@ -23,11 +23,11 @@ Core must be installed before either wrapper can be used.
 ## 🧩 Requirements
 
 - **Hardware**: an RDK development board and a GS130 series stereo camera. Some camera models include an IMU.
-- **Core**: the Horizon multimedia libraries (`libvpf`, `libhbmem` and `libcam`, installed under `/usr/hobot/lib`), the OpenCV 4 development headers, `libtbb.so.2`, and a GCC toolchain with C11 and C++17 support.
+- **Core**: the Horizon multimedia libraries (`libvpf`, `libhbmem` and `libcam`, installed under `/usr/hobot/lib`), the OpenCV 4 development headers, a TBB shared library (`libtbb.so.2` or `libtbb.so.12`, resolved from what the image installs), the OpenGL and LAPACK shared libraries the image's static OpenCV references (`libGL.so.1`, `liblapack.so.3`), and a GCC toolchain with C11 and C++17 support.
 - **Python wrapper**: Python 3.10 or later and `numpy`. Building the wheel additionally requires `setuptools` and `wheel`.
 - **ROS 2 wrapper**: ROS 2 Humble or Jazzy. The web preview and stereo depth launch files also require the TROS packages `hobot_codec`, `websocket` and `hobot_stereonet`.
 
-The current release implements the RDK X5 and RDK S100 backends. Support for RDK S600 is in development.
+The current release implements the RDK X5, RDK S100 and RDK S600 backends.
 
 ## 🗂️ Repository layout
 

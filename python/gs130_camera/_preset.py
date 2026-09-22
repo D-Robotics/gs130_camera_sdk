@@ -188,12 +188,70 @@ def GS130_CONFIG_RDKS100_GS130W_NO_EEPROM(mode, width, height, fps, odr):
     return values
 
 
+def GS130_CONFIG_RDKS600_GS130WI(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKS600_GS130WI`` macro."""
+    values = config()
+    values["camera_config"].update(
+        bus=[4, 5],
+        left_addr=0x30,
+        right_addr=0x32,
+        sensor_width=1088,
+        sensor_height=1280,
+        fps=fps,
+        line_length=1400,
+        frame_length=1500,
+        tuning_file="lib_sc132gs_linear.so",
+        output_width=width,
+        output_height=height,
+        mode=mode,
+        stereo_layout=StereoLayout.NONE,
+        bus_mipi_rx={4: 4, 5: 5},
+        bus_reset_gpio={4: 411, 5: 412},
+        fsync_camera=CameraIndex.RIGHT,
+    )
+    values["imu_config"].update(
+        bus=[5],
+        addr=0x68,
+        odr_hz=odr,
+        accel_fsr_g=16,
+        gyro_fsr_dps=2000,
+        accel_bw_sel=0,
+        gyro_bw_sel=0,
+    )
+    values["eeprom_config"].update(bus=[5], addr=0x50)
+    values["camera_fifo"].update(depth=4, mode=FifoMode.DROP_OLD)
+    values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
+    return values
+
+
+def GS130_CONFIG_RDKS600_GS130W_NO_EEPROM(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKS600_GS130W_NO_EEPROM`` macro.
+
+    The GS130W module without a usable calibration EEPROM, on the S600's 22-pin
+    connectors.  Bus, port and GPIO assignments are
+    :func:`GS130_CONFIG_RDKS600_GS130WI`'s because the module occupies the same two
+    connectors.  Its left camera answers at 0x33, it has no IMU, and its EEPROM is not
+    usable, so ``imu_config.bus`` and ``eeprom_config.bus`` are empty (the C macro's
+    ``bus_num = 0`` for both) and ``imu_fifo`` stays at its zeroed depth and DROP_NEW.  The
+    left address is the one that module answers at on the S100; no such module was available
+    on an S600 to measure.
+    """
+    values = GS130_CONFIG_RDKS600_GS130WI(mode, width, height, fps, odr)
+    values["camera_config"].update(left_addr=0x33, tuning_file=None)
+    values["imu_config"].update(bus=[])
+    values["eeprom_config"].update(bus=[])
+    values["imu_fifo"].update(depth=0, mode=FifoMode.DROP_NEW)
+    return values
+
+
 PRESETS = {
     ("RDKX5", "GS130WI"): GS130_CONFIG_RDKX5_GS130WI,
     ("RDKX5", "GS130W"): GS130_CONFIG_RDKX5_GS130W,
     ("RDKX5", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKX5_GS130W_NO_EEPROM,
     ("RDKS100", "GS130WI"): GS130_CONFIG_RDKS100_GS130WI,
     ("RDKS100", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKS100_GS130W_NO_EEPROM,
+    ("RDKS600", "GS130WI"): GS130_CONFIG_RDKS600_GS130WI,
+    ("RDKS600", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKS600_GS130W_NO_EEPROM,
 }
 
 

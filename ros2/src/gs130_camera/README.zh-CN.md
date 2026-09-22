@@ -14,12 +14,12 @@
 | --- | --- |
 | 语言 | C++17（节点）+ C99（SDK 预设桥接） |
 | 构建 | `ament_cmake` / `colcon` |
-| 支持平台 | RDK X5、RDK S100（RDK S600 开发中） |
+| 支持平台 | RDK X5、RDK S100、RDK S600 |
 | 依赖 | ROS 2 Humble 或 Jazzy、`libgs130.so` |
 
 ## 🧩 依赖
 
-- **硬件**：RDK 系列开发板 + GS130 系列双目相机（部分型号带 IMU）。当前支持 **RDK X5** 与 **RDK S100**，RDK S600 支持开发中。
+- **硬件**：RDK 系列开发板 + GS130 系列双目相机（部分型号带 IMU）。当前支持 **RDK X5**、**RDK S100** 与 **RDK S600**。
 - **ROS 2**：Humble 或 Jazzy。请 source 板卡上实际安装的发行版；使用 TROS 时，在其后继续 source TROS overlay：
 
   ```bash

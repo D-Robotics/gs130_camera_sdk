@@ -62,11 +62,11 @@ PLATFORM_STR  = -DGS130_PLATFORM='"$(PLATFORM)"'
 
 # Platform headers that are not on the compiler's default search path. RDKX5
 # installs its Horizon headers into /usr/include, which is searched anyway;
-# RDKS100 keeps them under /usr/hobot/include, which is not, so it needs the -I.
-# RDKS100's hbn_isp_cfg.h includes "cJSON.h" bare while the package installs it
-# under /usr/include/cjson, so that directory is needed too. Kept per platform so
-# adding one cannot shadow another's headers.
-PLATFORM_INCLUDES := $(if $(filter RDKS100,$(PLATFORM)), -I/usr/hobot/include -I/usr/include/cjson)
+# RDKS100 and RDKS600 keep them under /usr/hobot/include, which is not, so they
+# need the -I. Their hbn_isp_cfg.h includes "cJSON.h" bare while the package
+# installs it under /usr/include/cjson, so that directory is needed too. Kept per
+# platform so adding one cannot shadow another's headers.
+PLATFORM_INCLUDES := $(if $(filter RDKS100 RDKS600,$(PLATFORM)), -I/usr/hobot/include -I/usr/include/cjson)
 
 # ---- Version ----
 
@@ -96,18 +96,34 @@ LDFLAGS_GOLD = $(shell command -v ld.gold >/dev/null 2>&1 && echo -fuse-ld=gold)
 # glibc stays dynamic: libc.so.6 / libm.so.6 / ld.so cannot be linked into a shared
 # library, and libpthread/librt/libdl are part of libc here (no NEEDED of their own).
 # zlib is linked statically, so libz.so.1 is not a runtime dependency either.
-# The static OpenCV core calls into TBB and the image ships no libtbb.a, so
-# libtbb.so.2 is the only remaining non-glibc, non-Horizon runtime dependency.
+# The static OpenCV core calls into TBB and the image ships no libtbb.a, so a
+# libtbb shared object is the only remaining non-glibc, non-Horizon runtime
+# dependency. Its SONAME depends on the TBB generation the image carries
+# (libtbb.so.2 on the RDK X5 and S100 images, libtbb.so.12 on the S600 one), so
+# resolve it from what is installed instead of naming one version.
 GLIBC_LIBS  := -lm -lpthread -lrt -ldl
 ZLIB_STATIC := /usr/lib/aarch64-linux-gnu/libz.a
-TBB_LIB     := /usr/lib/aarch64-linux-gnu/libtbb.so.2
+TBB_SONAMES := libtbb.so.2 libtbb.so.12 libtbb.so
+TBB_LIB     := $(firstword $(foreach so,$(TBB_SONAMES),$(wildcard /usr/lib/aarch64-linux-gnu/$(so))))
+ifeq ($(strip $(TBB_LIB)),)
+$(error no libtbb shared object found under /usr/lib/aarch64-linux-gnu)
+endif
+# The static OpenCV archives also reference OpenGL and LAPACK/BLAS entry points, from
+# their calib3d module. A shared object is allowed to carry undefined symbols, but the
+# Python bindings open libgs130 with eager relocation, so an unresolved one fails the
+# dlopen even though nothing here calls those functions -- the C samples only survive
+# because their own symbol resolution stays lazy. Name the providers, resolving them
+# from what is installed as the TBB SONAME is. liblapack pulls in libblas and
+# libgfortran by itself, so those are not named.
+OPENCV_SYS_SONAMES := libGL.so.1 liblapack.so.3
+OPENCV_SYS_LIBS    := $(foreach so,$(OPENCV_SYS_SONAMES),$(if $(wildcard /usr/lib/aarch64-linux-gnu/$(so)),-l:$(so)))
 # -static-libstdc++/-static-libgcc embed the C++ runtime, dropping libstdc++.so.6 and
 # libgcc_s.so.1 from NEEDED; --exclude-libs,ALL keeps the symbols taken from those
 # static archives out of the dynamic symbol table, so only the C API and the
 # library's own symbols are exported.
 LDFLAGS_SELF := -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL
 LDFLAGS  = -L$(HBN_LIB_DIR) $(LDFLAGS_SELF)
-LIBS     = $(HBN_LIBS) $(GLIBC_LIBS) $(OPENCV_LIBS) $(ZLIB_STATIC) $(TBB_LIB)
+LIBS     = $(HBN_LIBS) $(GLIBC_LIBS) $(OPENCV_LIBS) $(ZLIB_STATIC) $(TBB_LIB) $(OPENCV_SYS_LIBS)
 
 # ---- Sources ----
 

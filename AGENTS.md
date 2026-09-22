@@ -101,7 +101,7 @@ TROS launches (need `hobot_codec`, `websocket`, `hobot_stereonet`): `source /opt
 ## Rules
 
 - Comment/doc work: zero token changes in code. Verify, do not assume.
-- Never document unsupported capability. Implemented backends = directories under `core/src/devices/pipeline/`; anything else makes `GS130_CONFIG_PLATFORM` print and `exit(1)`. RDKX5 is the supported backend. `RDKS100/` holds an S100 port that has **not been built or run** — it needs an S100 sysroot (the platform headers are not in `INCLUDES`; they come from the toolchain) and an S100 board, so it must not be described as supported until a build and a device run exist. S600 has no directory at all.
+- Never document unsupported capability. Implemented backends = directories under `core/src/devices/pipeline/`; anything else makes `GS130_CONFIG_PLATFORM` print and `exit(1)`. RDKX5 is the supported backend. `RDKS100/` holds an S100 port that **has** been built and run on an S100 board (JIRA-011 first build and run; JIRA-014 clean build and GS130WI streaming at 30 fps), so S100 may be described as supported. `RDKS600/` holds an S600 port that **has** been built and run on an S600 (JIRA-015: raw, resize and rect at 30 fps), so S600 may be described as supported on the same terms. The bar is unchanged: a backend is described as supported only once a build and a device run exist for it.
 - Project is a developer preview (Alpha). Label it as such in user-facing documents. The
   stage shows up as a suffix on release tags (`0.1.0-Alpha`) and not inside `VERSION`, which
   holds three plain numbers; see the release rule below.
