@@ -60,10 +60,19 @@
     .imu_fifo    = { .depth = 1024, .mode = GS130_FIFO_DROP_OLD },          \
 }
 
+/* GS130W stereo module with a readable calibration EEPROM. The camera addresses are the
+   ones measured on the module this preset targets: left 0x33 and right 0x32, both
+   answering chip-id 0x0132. They differ from the GS130WI module's 0x30/0x31, and pipeline
+   construction requires both eyes to be found. The buses are listed as {4, 6} because the
+   pipeline probes every listed bus for each address and lets the first one that answers
+   win, so which of the two buses carries which eye does not matter. The EEPROM answers on
+   bus 6 at 0x50 and is enabled here; its model is registered by the SZYGSJKJ pinhole V1.1
+   driver, which also supplies the 90 degree installation angle of this
+   landscape-mounted module. */
 #define GS130_CONFIG_RDKX5_GS130W(mode_, width_, height_, fps_, odr_) {    \
     .camera_config = {                                                      \
         .bus = {4, 6}, .bus_num = 2,                                        \
-        .left_addr = 0x30, .right_addr = 0x31,                              \
+        .left_addr = 0x33, .right_addr = 0x32,                              \
         .sensor_width = 1088, .sensor_height = 1280,                        \
         .fps = (fps_), .line_length = 1400, .frame_length = 1500,           \
         .tuning_file = NULL,                                                \

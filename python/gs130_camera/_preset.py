@@ -53,12 +53,21 @@ def GS130_CONFIG_RDKX5_GS130WI(mode, width, height, fps, odr):
 
 
 def GS130_CONFIG_RDKX5_GS130W(mode, width, height, fps, odr):
-    """Mirror of the ``GS130_CONFIG_RDKX5_GS130W`` macro."""
+    """Mirror of the ``GS130_CONFIG_RDKX5_GS130W`` macro.
+
+    The camera addresses are the ones measured on the GS130W module this preset
+    targets: left 0x33 and right 0x32, both answering chip-id 0x0132.  They differ
+    from the GS130WI module's 0x30/0x31, and pipeline construction requires both
+    eyes to be found.  Both buses are listed because the pipeline probes every bus
+    for each address.  The EEPROM is enabled and its model is registered by the
+    SZYGSJKJ pinhole V1.1 driver, which also supplies this landscape-mounted
+    module's 90 degree installation angle.
+    """
     values = config()
     values["camera_config"].update(
         bus=[4, 6],
-        left_addr=0x30,
-        right_addr=0x31,
+        left_addr=0x33,
+        right_addr=0x32,
         sensor_width=1088,
         sensor_height=1280,
         fps=fps,
