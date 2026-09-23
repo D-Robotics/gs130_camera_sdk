@@ -104,10 +104,25 @@ LDFLAGS_GOLD = $(shell command -v ld.gold >/dev/null 2>&1 && echo -fuse-ld=gold)
 GLIBC_LIBS  := -lm -lpthread -lrt -ldl
 ZLIB_STATIC := /usr/lib/aarch64-linux-gnu/libz.a
 TBB_SONAMES := libtbb.so.2 libtbb.so.12 libtbb.so
-TBB_LIB     := $(firstword $(foreach so,$(TBB_SONAMES),$(wildcard /usr/lib/aarch64-linux-gnu/$(so))))
+TBB_DIR     := /usr/lib/aarch64-linux-gnu
+TBB_FILES   := $(foreach so,$(TBB_SONAMES),$(wildcard $(TBB_DIR)/$(so)))
+# Prefer a libtbb that some package owns: a stray copy (left behind by another
+# SDK, or a compatibility symlink) must not decide the dependency name.
+TBB_LIB     := $(firstword $(foreach f,$(TBB_FILES),$(if $(shell dpkg -S $(f) 2>/dev/null),$(f))))
 ifeq ($(strip $(TBB_LIB)),)
-$(error no libtbb shared object found under /usr/lib/aarch64-linux-gnu)
+TBB_LIB     := $(firstword $(TBB_FILES))
 endif
+ifeq ($(strip $(TBB_LIB)),)
+$(error no libtbb shared object found under $(TBB_DIR))
+endif
+# Name the dependency after whichever package provides the library actually
+# linked, rather than guessing from the SONAME: the generation names differ
+# across Ubuntu releases (libtbb2 on 22.04 / jammy, libtbb12 on 24.04 / noble)
+# and an image can carry both SONAMEs at once. Fall back to the SONAME only
+# when nothing owns the file.
+TBB_OWNER := $(firstword $(shell dpkg -S $(TBB_LIB) 2>/dev/null | cut -d: -f1))
+TBB_SOVER := $(patsubst libtbb.so.%,%,$(notdir $(TBB_LIB)))
+TBB_PKG   := $(if $(strip $(TBB_OWNER)),$(TBB_OWNER),$(if $(filter $(TBB_SOVER),2 12),libtbb$(TBB_SOVER),libtbb2 | libtbb12))
 # The static OpenCV archives also reference OpenGL and LAPACK/BLAS entry points, from
 # their calib3d module. A shared object is allowed to carry undefined symbols, but the
 # Python bindings open libgs130 with eager relocation, so an unresolved one fails the
@@ -338,7 +353,7 @@ $(DEB_FILE): $(LIB_STATIC) $(LIB_FULL) $(SAMPLE_BINS) $(TOOL_BINS) $(OUT_DIR)/gs
 	    echo "Maintainer: $(DEB_MAINTAINER)"; \
 	    echo "Section: misc"; \
 	    echo "Priority: optional"; \
-	    echo "Depends: libc6 (>= 2.34), libtbb2, hobot-multimedia"; \
+	    echo "Depends: libc6 (>= 2.34), $(TBB_PKG), hobot-multimedia"; \
 	    echo "Description: GS130 stereo camera and IMU SDK for $(PLATFORM)"; \
 	    echo " Camera and IMU capture library with the gs130 command line tool."; \
 	    echo " The $(PLATFORM) backend is compiled into the library."; \
