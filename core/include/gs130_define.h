@@ -27,12 +27,14 @@
 #define GS130_CONFIG(device, mode, w, h, fps, odr) GS130_CONFIG_PLATFORM(gs130_platform(), device, mode, w, h, fps, odr)
 
 #define GS130_CONFIG_PLATFORM(platform, device, mode, w, h, fps, odr) \
-    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130WI") == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130WI((mode), (w), (h), (fps), (odr)) : \
-    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W")  == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W((mode), (w), (h), (fps), (odr))  : \
-    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W_NO_EEPROM") == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W_NO_EEPROM((mode), (w), (h), (fps), (odr)) : \
-    strcmp((platform), "RDKS100") == 0 && strcmp((device), "GS130WI") == 0 ? (gs130_config_t) GS130_CONFIG_RDKS100_GS130WI((mode), (w), (h), (fps), (odr)) : \
+    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130WI")            == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130WI((mode), (w), (h), (fps), (odr)) : \
+    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W")             == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W((mode), (w), (h), (fps), (odr))  : \
+    strcmp((platform), "RDKX5") == 0 && strcmp((device), "GS130W_NO_EEPROM")   == 0 ? (gs130_config_t) GS130_CONFIG_RDKX5_GS130W_NO_EEPROM((mode), (w), (h), (fps), (odr)) : \
+    strcmp((platform), "RDKS100") == 0 && strcmp((device), "GS130WI")          == 0 ? (gs130_config_t) GS130_CONFIG_RDKS100_GS130WI((mode), (w), (h), (fps), (odr)) : \
+    strcmp((platform), "RDKS100") == 0 && strcmp((device), "GS130W")           == 0 ? (gs130_config_t) GS130_CONFIG_RDKS100_GS130W((mode), (w), (h), (fps), (odr))  : \
     strcmp((platform), "RDKS100") == 0 && strcmp((device), "GS130W_NO_EEPROM") == 0 ? (gs130_config_t) GS130_CONFIG_RDKS100_GS130W_NO_EEPROM((mode), (w), (h), (fps), (odr)) : \
-    strcmp((platform), "RDKS600") == 0 && strcmp((device), "GS130WI") == 0 ? (gs130_config_t) GS130_CONFIG_RDKS600_GS130WI((mode), (w), (h), (fps), (odr)) : \
+    strcmp((platform), "RDKS600") == 0 && strcmp((device), "GS130WI")          == 0 ? (gs130_config_t) GS130_CONFIG_RDKS600_GS130WI((mode), (w), (h), (fps), (odr)) : \
+    strcmp((platform), "RDKS600") == 0 && strcmp((device), "GS130W")           == 0 ? (gs130_config_t) GS130_CONFIG_RDKS600_GS130W((mode), (w), (h), (fps), (odr))  : \
     strcmp((platform), "RDKS600") == 0 && strcmp((device), "GS130W_NO_EEPROM") == 0 ? (gs130_config_t) GS130_CONFIG_RDKS600_GS130W_NO_EEPROM((mode), (w), (h), (fps), (odr)) : \
     (fprintf(stderr, "unsupported platform/device: %s %s\n", (platform), (device)), exit(1), (gs130_config_t){0})
 
@@ -63,7 +65,7 @@
 #define GS130_CONFIG_RDKX5_GS130W(mode_, width_, height_, fps_, odr_) {    \
     .camera_config = {                                                      \
         .bus = {4, 6}, .bus_num = 2,                                        \
-        .left_addr = 0x30, .right_addr = 0x31,                              \
+        .left_addr = 0x33, .right_addr = 0x32,                              \
         .sensor_width = 1088, .sensor_height = 1280,                        \
         .fps = (fps_), .line_length = 1400, .frame_length = 1500,           \
         .tuning_file = NULL,                                                \
@@ -83,13 +85,6 @@
     .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
 }
 
-/* RDK S100. The board wires the module to different I2C buses and MIPI RX ports than
-   the X5, so every bus-keyed field differs: the cameras sit on buses 1 and 2, and both
-   the EEPROM and the IMU answer on bus 2 alone. The two MIPI RX ports and the sensor
-   mode are the ones the board's own dual-sensor tuning configuration states for this
-   module (/app/tuning_tool/cfg/matrix/tuning_sc132gs_dual_cim_isp_1088_1280).
-   bus_reset_gpio is left disabled: the X5 pulses a reset line through sysfs and this
-   board's configuration names no such line, so that value is still unverified. */
 #define GS130_CONFIG_RDKS100_GS130WI(mode_, width_, height_, fps_, odr_) {  \
     .camera_config = {                                                      \
         .bus = {1, 2}, .bus_num = 2,                                        \
@@ -114,15 +109,29 @@
     .imu_fifo    = { .depth = 1024, .mode = GS130_FIFO_DROP_OLD },          \
 }
 
-/* A GS130W-family module with no usable calibration EEPROM, on this platform's
-   camera connectors. The board wiring is the GS130WI preset's: the module uses the
-   same two connectors, so bus, bus_mipi_rx and bus_reset_gpio are identical, and
-   this board names no reset line. What differs is the module: its left camera
-   answers at 0x33 rather than 0x30, it has no IMU, and its EEPROM is not usable: a
-   chip answers at 0x50 on bus 1, but its contents are an unregistered model variant
-   the SDK rejects, so probing it would only add a probe that always fails.
-   eeprom_config.bus_num = 0 and imu_config.bus_num = 0 disable both, and with no IMU
-   there is no imu_fifo. */
+#define GS130_CONFIG_RDKS100_GS130W(mode_, width_, height_, fps_, odr_) {   \
+    .camera_config = {                                                      \
+        .bus = {1, 2}, .bus_num = 2,                                        \
+        .left_addr = 0x33, .right_addr = 0x32,                              \
+        .sensor_width = 1088, .sensor_height = 1280,                        \
+        .fps = (fps_), .line_length = 1400, .frame_length = 1500,           \
+        .tuning_file = "lib_sc132gs_linear.so",                             \
+        .output_width = (width_), .output_height = (height_),               \
+        .mode = (mode_),                                                    \
+        .stereo_layout = GS130_STEREO_LAYOUT_NONE,                          \
+        .bus_mipi_rx    = { [0] = 0xFF, [1] = 0, [2] = 1, [3 ... 31] = 0xFF }, \
+        .bus_reset_gpio = { [0 ... 31] = -1 },                              \
+        .fsync_camera = GS130_CAMERA_RIGHT_IDX,                             \
+    },                                                                      \
+    .imu_config = {                                                         \
+        .bus_num = 0, .addr = 0x68,                                         \
+        .odr_hz = (odr_), .accel_fsr_g = 16, .gyro_fsr_dps = 2000,          \
+        .accel_bw_sel = 0, .gyro_bw_sel = 0,                                \
+    },                                                                      \
+    .eeprom_config = { .bus = {1, 2}, .bus_num = 2, .addr = 0x50 },         \
+    .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
+}
+
 #define GS130_CONFIG_RDKS100_GS130W_NO_EEPROM(mode_, width_, height_, fps_, odr_) { \
     .camera_config = {                                                      \
         .bus = {1, 2}, .bus_num = 2,                                        \
@@ -146,15 +155,6 @@
     .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
 }
 
-/* A GS130W-family module with no usable calibration EEPROM. Differs from
-   GS130_CONFIG_RDKX5_GS130W in two places: the camera addresses and the disabled EEPROM.
-   The addresses are the ones measured on the module this preset was added for (left on
-   bus 4 at 0x33, right on bus 6 at 0x32). That module does not answer at the GS130W
-   preset's 0x30/0x31, and pipeline construction requires both addresses to be found, so
-   reusing those addresses left the device unable to initialize at all.
-   eeprom_config.bus_num = 0 disables EEPROM probing. Its address stays listed the way the
-   disabled IMU bus above keeps its own, so the two macros can still be compared field by
-   field; bus_num is what the SDK actually reads. */
 #define GS130_CONFIG_RDKX5_GS130W_NO_EEPROM(mode_, width_, height_, fps_, odr_) { \
     .camera_config = {                                                      \
         .bus = {4, 6}, .bus_num = 2,                                        \
@@ -178,11 +178,6 @@
     .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
 }
 
-/* RDK S600. Both cameras reach the board through the 22-pin MIPI connectors, which are the
-   receivers the device tree names vcon@4 and vcon@5; their I2C buses happen to carry the
-   same numbers here, but the port value in bus_mipi_rx is the receiver index, not the bus.
-   bus_reset_gpio holds each port's camera enable line: pulling it low makes the sensor stop
-   answering on I2C, so the SDK drives it high. */
 #define GS130_CONFIG_RDKS600_GS130WI(mode_, width_, height_, fps_, odr_) {  \
     .camera_config = {                                                      \
         .bus = {4, 5}, .bus_num = 2,                                        \
@@ -207,10 +202,29 @@
     .imu_fifo    = { .depth = 1024, .mode = GS130_FIFO_DROP_OLD },          \
 }
 
-/* The GS130W module without a usable calibration EEPROM, on the S600's 22-pin connectors.
-   Bus, port and GPIO assignments are the GS130WI preset's because the module occupies the
-   same two connectors. The left address is the one that module answers at on the S100; it is
-   carried over rather than measured, as no such module was available on an S600. */
+#define GS130_CONFIG_RDKS600_GS130W(mode_, width_, height_, fps_, odr_) {   \
+    .camera_config = {                                                      \
+        .bus = {4, 5}, .bus_num = 2,                                        \
+        .left_addr = 0x33, .right_addr = 0x32,                              \
+        .sensor_width = 1088, .sensor_height = 1280,                        \
+        .fps = (fps_), .line_length = 1400, .frame_length = 1500,           \
+        .tuning_file = "lib_sc132gs_linear.so",                             \
+        .output_width = (width_), .output_height = (height_),               \
+        .mode = (mode_),                                                    \
+        .stereo_layout = GS130_STEREO_LAYOUT_NONE,                          \
+        .bus_mipi_rx    = { [0 ... 3] = 0xFF, [4] = 4, [5] = 5, [6 ... 31] = 0xFF },  \
+        .bus_reset_gpio = { [0 ... 3] = -1, [4] = 411, [5] = 412, [6 ... 31] = -1 },  \
+        .fsync_camera = GS130_CAMERA_RIGHT_IDX,                             \
+    },                                                                      \
+    .imu_config = {                                                         \
+        .bus_num = 0, .addr = 0x68,                                         \
+        .odr_hz = (odr_), .accel_fsr_g = 16, .gyro_fsr_dps = 2000,          \
+        .accel_bw_sel = 0, .gyro_bw_sel = 0,                                \
+    },                                                                      \
+    .eeprom_config = { .bus = {4, 5}, .bus_num = 2, .addr = 0x50 },         \
+    .camera_fifo = { .depth = 4,    .mode = GS130_FIFO_DROP_OLD },          \
+}
+
 #define GS130_CONFIG_RDKS600_GS130W_NO_EEPROM(mode_, width_, height_, fps_, odr_) { \
     .camera_config = {                                                      \
         .bus = {4, 5}, .bus_num = 2,                                        \

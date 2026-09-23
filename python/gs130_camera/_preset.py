@@ -53,12 +53,21 @@ def GS130_CONFIG_RDKX5_GS130WI(mode, width, height, fps, odr):
 
 
 def GS130_CONFIG_RDKX5_GS130W(mode, width, height, fps, odr):
-    """Mirror of the ``GS130_CONFIG_RDKX5_GS130W`` macro."""
+    """Mirror of the ``GS130_CONFIG_RDKX5_GS130W`` macro.
+
+    The camera addresses are the ones measured on the GS130W module this preset
+    targets: left 0x33 and right 0x32, both answering chip-id 0x0132.  They differ
+    from the GS130WI module's 0x30/0x31, and pipeline construction requires both
+    eyes to be found.  Both buses are listed because the pipeline probes every bus
+    for each address.  The EEPROM is enabled and its model is registered by the
+    SZYGSJKJ pinhole V1.1 driver, which also supplies this landscape-mounted
+    module's 90 degree installation angle.
+    """
     values = config()
     values["camera_config"].update(
         bus=[4, 6],
-        left_addr=0x30,
-        right_addr=0x31,
+        left_addr=0x33,
+        right_addr=0x32,
         sensor_width=1088,
         sensor_height=1280,
         fps=fps,
@@ -168,6 +177,26 @@ def GS130_CONFIG_RDKS100_GS130WI(mode, width, height, fps, odr):
     return values
 
 
+def GS130_CONFIG_RDKS100_GS130W(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKS100_GS130W`` macro.
+
+    The GS130W module with its calibration EEPROM readable, on the S100's camera
+    connectors.  It derives from :func:`GS130_CONFIG_RDKS100_GS130W_NO_EEPROM`, so every
+    wiring field matches that preset and the EEPROM is the only change.  Both camera
+    buses are listed because which one carries the EEPROM follows how the two modules are
+    mounted -- left and right can be swapped -- and is not fixed per platform.
+
+    Verified on hardware (on one assembly): both cameras are found (0x33 on bus 2, 0x32
+    on bus 1), the EEPROM reads as ``SZYGSJKJ Stereo Pinhole V1.1 Rotate-90-deg
+    8-Distortion-parameters``, and raw / resize / rect each ran at 30 fps with intrinsics
+    identical to the X5 measurement.
+    """
+    values = GS130_CONFIG_RDKS100_GS130W_NO_EEPROM(mode, width, height, fps, odr)
+    values["camera_config"].update(tuning_file="lib_sc132gs_linear.so")
+    values["eeprom_config"].update(bus=[1, 2], addr=0x50)
+    return values
+
+
 def GS130_CONFIG_RDKS100_GS130W_NO_EEPROM(mode, width, height, fps, odr):
     """Mirror of the ``GS130_CONFIG_RDKS100_GS130W_NO_EEPROM`` macro.
 
@@ -224,6 +253,27 @@ def GS130_CONFIG_RDKS600_GS130WI(mode, width, height, fps, odr):
     return values
 
 
+def GS130_CONFIG_RDKS600_GS130W(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKS600_GS130W`` macro.
+
+    The GS130W module with its calibration EEPROM readable, on the S600's 22-pin
+    connectors.  It derives from :func:`GS130_CONFIG_RDKS600_GS130W_NO_EEPROM`, so every
+    wiring field matches that preset -- including the left address that preset carries
+    over from the S100 -- and the EEPROM is the only change.  Both camera buses are
+    listed because which one carries the EEPROM follows how the two modules are mounted
+    -- left and right can be swapped -- and is not fixed per platform.
+
+    Verified on hardware (on one assembly): both cameras are found (0x33 on bus 5, 0x32
+    on bus 4), the EEPROM reads as ``SZYGSJKJ Stereo Pinhole V1.1 Rotate-90-deg
+    8-Distortion-parameters``, and raw / resize / rect each ran at 30 fps with intrinsics
+    identical to the X5 and S100 measurements.
+    """
+    values = GS130_CONFIG_RDKS600_GS130W_NO_EEPROM(mode, width, height, fps, odr)
+    values["camera_config"].update(tuning_file="lib_sc132gs_linear.so")
+    values["eeprom_config"].update(bus=[4, 5], addr=0x50)
+    return values
+
+
 def GS130_CONFIG_RDKS600_GS130W_NO_EEPROM(mode, width, height, fps, odr):
     """Mirror of the ``GS130_CONFIG_RDKS600_GS130W_NO_EEPROM`` macro.
 
@@ -249,8 +299,10 @@ PRESETS = {
     ("RDKX5", "GS130W"): GS130_CONFIG_RDKX5_GS130W,
     ("RDKX5", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKX5_GS130W_NO_EEPROM,
     ("RDKS100", "GS130WI"): GS130_CONFIG_RDKS100_GS130WI,
+    ("RDKS100", "GS130W"): GS130_CONFIG_RDKS100_GS130W,
     ("RDKS100", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKS100_GS130W_NO_EEPROM,
     ("RDKS600", "GS130WI"): GS130_CONFIG_RDKS600_GS130WI,
+    ("RDKS600", "GS130W"): GS130_CONFIG_RDKS600_GS130W,
     ("RDKS600", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKS600_GS130W_NO_EEPROM,
 }
 
