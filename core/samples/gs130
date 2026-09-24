@@ -55,7 +55,7 @@ help_requested() {
 flag_help() {
     cat <<'EOF'
 device config:
-  -d <device>     device model, required       GS130WI | GS130W | GS130W_NO_EEPROM
+  -d <device>     device model, required       GS130WI | GS130W | GS130W_NO_EEPROM | GS130WI_20260924
   -m <mode>       pipeline mode                raw | resize | rect
   -w <width>      output width, in pixels
   -h <height>     output height, in pixels
