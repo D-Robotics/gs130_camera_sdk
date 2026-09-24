@@ -14,12 +14,12 @@
 | --- | --- |
 | Language | C++17 (node) + C99 (SDK preset bridge) |
 | Build | `ament_cmake` / `colcon` |
-| Platform | RDK X5 (RDK S100 / RDK S600 in development) |
+| Platform | RDK X5, RDK S100, RDK S600 |
 | Requires | ROS 2 Humble or Jazzy, `libgs130.so` |
 
 ## 🧩 Dependencies
 
-- **Hardware**: an RDK series development board with a GS130 series stereo camera (some models include an IMU). Currently supported: **RDK X5**; RDK S100 and RDK S600 support is in development.
+- **Hardware**: an RDK series development board with a GS130 series stereo camera (some models include an IMU). Currently supported: **RDK X5**, **RDK S100** and **RDK S600**.
 - **ROS 2**: Humble or Jazzy. Source the distribution installed on the board, and on a TROS system source the TROS overlay after it:
 
   ```bash
@@ -105,7 +105,7 @@ Either way the node also publishes:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `device` | `GS130WI` | Camera model: `GS130WI` or `GS130W` |
+| `device` | `GS130WI` | Camera model: `GS130WI`, `GS130W`, `GS130W_NO_EEPROM` or `GS130WI_20260924` |
 | `camera_mode` | `rect` | `raw` / `resize` / `rect` |
 | `stitch` | `none` | `none` / `left_right` / `right_left` / `top_bottom` / `bottom_top` |
 | `output_width` | `544` | Output width of one eye, in pixels |
@@ -121,6 +121,7 @@ Either way the node also publishes:
 | `frame_id` | `camera_link` | Frame of the left eye and of the combined frame |
 | `right_frame_id` | `camera_right_link` | Frame of the right eye |
 | `imu_frame_id` | `imu_link` | Frame the IMU samples are stamped with |
+| `tuning_file` | empty | ISP effect library; **empty keeps the platform preset** (`lib_sc132gs_linear.so` on S100), `disable` loads **no tuning**, any other value loads that library (resolved by name under `/usr/hobot/lib/sensor/`, no full path needed) |
 
 `output_width`, `output_height`, `fps` and `odr` must be positive integers, `timer_period_ms` must be positive, and `camera_mode` and `stitch` must be one of the values listed above; otherwise the node fails at startup.
 

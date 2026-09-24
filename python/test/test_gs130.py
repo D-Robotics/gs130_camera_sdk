@@ -50,7 +50,7 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(
         description="Walk the gs130 public API once against real hardware.",
     )
-    parser.add_argument("device", help="camera model, GS130WI or GS130W")
+    parser.add_argument("device", help="camera model, GS130WI, GS130W, GS130W_NO_EEPROM or GS130WI_20260924")
     parser.add_argument("mode", choices=sorted(MODES), help="how frames are made")
     parser.add_argument("width", type=int, help="output width of one eye")
     parser.add_argument("height", type=int, help="output height of one eye")

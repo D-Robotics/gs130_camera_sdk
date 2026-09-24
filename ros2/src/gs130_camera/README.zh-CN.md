@@ -14,12 +14,12 @@
 | --- | --- |
 | 语言 | C++17（节点）+ C99（SDK 预设桥接） |
 | 构建 | `ament_cmake` / `colcon` |
-| 支持平台 | RDK X5（RDK S100 / RDK S600 开发中） |
+| 支持平台 | RDK X5、RDK S100、RDK S600 |
 | 依赖 | ROS 2 Humble 或 Jazzy、`libgs130.so` |
 
 ## 🧩 依赖
 
-- **硬件**：RDK 系列开发板 + GS130 系列双目相机（部分型号带 IMU）。当前支持 **RDK X5**，RDK S100 / RDK S600 支持开发中。
+- **硬件**：RDK 系列开发板 + GS130 系列双目相机（部分型号带 IMU）。当前支持 **RDK X5**、**RDK S100** 与 **RDK S600**。
 - **ROS 2**：Humble 或 Jazzy。请 source 板卡上实际安装的发行版；使用 TROS 时，在其后继续 source TROS overlay：
 
   ```bash
@@ -105,7 +105,7 @@ ros2 launch gs130_camera gs130.launch.py
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `device` | `GS130WI` | 相机型号：`GS130WI` 或 `GS130W` |
+| `device` | `GS130WI` | 相机型号：`GS130WI`、`GS130W`、`GS130W_NO_EEPROM` 或 `GS130WI_20260924` |
 | `camera_mode` | `rect` | `raw` / `resize` / `rect` |
 | `stitch` | `none` | `none` / `left_right` / `right_left` / `top_bottom` / `bottom_top` |
 | `output_width` | `544` | 单目输出宽度（像素） |
@@ -121,6 +121,7 @@ ros2 launch gs130_camera gs130.launch.py
 | `frame_id` | `camera_link` | 左目与合并帧的坐标系 |
 | `right_frame_id` | `camera_right_link` | 右目坐标系 |
 | `imu_frame_id` | `imu_link` | IMU 坐标系 |
+| `tuning_file` | 空 | ISP 效果库；**空 = 沿用平台预设**（S100 预设为 `lib_sc132gs_linear.so`），`disable` = **不加载任何 tuning**，其他值 = 换成该库（平台在 `/usr/hobot/lib/sensor/` 内按名解析，无需全路径） |
 
 `output_width`、`output_height`、`fps`、`odr` 必须为正整数，`timer_period_ms` 必须为正，`camera_mode` 与 `stitch` 必须为上述取值之一，否则节点启动即报错。
 

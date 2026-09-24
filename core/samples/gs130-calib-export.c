@@ -7,7 +7,7 @@
  *   Positional arguments, all required, no flags:
  *
  *   <dir>     output directory, created when missing
- *   <device>  device model: GS130WI | GS130W
+ *   <device>  device model: GS130WI | GS130W | GS130W_NO_EEPROM | GS130WI_20260924
  *   <mode>    pipeline mode: raw | resize | rect (anything else means raw)
  *   <width>   output width in pixels
  *   <height>  output height in pixels
@@ -20,18 +20,26 @@
  * output: both the YAML text on stdout and one file per document in <dir>
  *
  *   <dir>/camchain.yaml   camera intrinsics, plus the T_cam_imu and T_cn_cnm1
- *                         extrinsics when an IMU is present
+ *                         extrinsics when an IMU is present. Its header states the
+ *                         direction of T_cam_imu (IMU to camera) and that a consumer
+ *                         expecting T_imu_cam has to invert it.
  *   <dir>/imu.yaml        IMU noise and intrinsics; written only when an IMU is
  *                         present (update_rate is the <odr> argument)
+ *
+ *   The IMU documents are written only when the device reports an IMU. When the
+ *   configuration expects one and the device reports none -- another process holding
+ *   the device is enough -- both are omitted, and the omission is reported on stderr
+ *   and as a comment inside camchain.yaml, so a camera-only export cannot be taken
+ *   for a complete one.
  *
  *   raw mode exports the EEPROM's real calibration. Any other mode exports the
  *   calibration of that pipeline and prints a warning on stderr saying so, since
  *   rect replaces the camera poses with virtual parallel-stereo ones.
  *
  * exit status: 0 on success, 1 for fewer than eight arguments, or a failed
- * gs130_init() or gs130_get_calibration(). A write failure is not reported: a
- * <dir> that cannot be created or written only leaves the files missing, and the
- * YAML already went to stdout.
+ * gs130_init() or gs130_get_calibration(), or running out of memory while building a
+ * document. A write failure is not reported: a <dir> that cannot be created or written
+ * only leaves the files missing, and the YAML already went to stdout.
  *
  * error reporting: this program prints plain, unprefixed diagnostics on stderr
  * ("init failed", "get_calibration failed"), so a failure that happens in here
@@ -55,7 +63,7 @@
 
 static void save_yaml(const char *dir, const char *name, char *yaml);
 static char *camchain_yaml(gs130_device_t *dev, const gs130_calibration_t *cal,
-                           int w, int h, bool has_imu);
+                           int w, int h, bool has_imu, bool imu_missing);
 static char *imu_yaml(const gs130_calibration_t *cal, int odr);
 
 int main(int argc, char **argv)
@@ -90,17 +98,37 @@ int main(int argc, char **argv)
         fprintf(stderr, "\033[33mwarning: mode is \"%s\", not \"raw\" -- the exported calibration is the "
             "rectified/resized one, not the EEPROM's raw calibration\033[0m\n", argv[3]);
     }
+    /* Probe the IMU once and reuse the answer for both documents. Two probes can disagree
+       while another process holds the device, and that dropped T_cam_imu or imu.yaml
+       without a word. */
+    const bool has_imu = gs130_get_imu_name(dev) != NULL;
+    /* The caller's configuration says whether this module is supposed to have one, which is
+       what separates "no IMU on this module" from "the probe failed". */
+    const bool imu_missing = !has_imu && cfg.imu_config.bus_num > 0;
+    if(imu_missing){
+        fprintf(stderr, "warning: %s configures an IMU but the device reported none -- "
+            "T_cam_imu and imu.yaml are omitted\n", argv[2]);
+    }
+
     char *camchain = camchain_yaml(
         dev, &cal, 
         cfg.camera_config.output_width,
         cfg.camera_config.output_height,
-        gs130_get_imu_name(dev) != NULL);
+        has_imu, imu_missing);
+    if(camchain == NULL){
+        fprintf(stderr, "out of memory building camchain.yaml\n");
+        ret = 1; goto out;
+    }
     printf("%s", camchain);
     save_yaml(argv[1], "camchain.yaml", camchain);
 
     /* Get IMU intrinsics and save */
-    if(gs130_get_imu_name(dev) != NULL){
+    if(has_imu){
         char *imu = imu_yaml(&cal, atoi(argv[7]));
+        if(imu == NULL){
+            fprintf(stderr, "out of memory building imu.yaml\n");
+            ret = 1; goto out;
+        }
         printf("%s", imu);
         save_yaml(argv[1], "imu.yaml", imu);
     }
@@ -113,7 +141,7 @@ out:
 }
 
 static char *camchain_yaml(gs130_device_t *dev, const gs130_calibration_t *cal,
-                           int w, int h, bool has_imu)
+                           int w, int h, bool has_imu, bool imu_missing)
 {
     char *yaml = NULL;
     size_t len = 0;
@@ -122,6 +150,12 @@ static char *camchain_yaml(gs130_device_t *dev, const gs130_calibration_t *cal,
 
     fprintf(f, "# gs130 EEPROM calibration, Kalibr camchain format\n");
     fprintf(f, "# p_to = T * p_from (T_cam_imu: IMU -> camera, T_cn_cnm1: cam0 -> cam1)\n");
+    if(imu_missing)
+        fprintf(f, "# warning: the configuration expects an IMU but the device reported "
+                   "none; T_cam_imu is omitted, so this file is camera-only\n");
+    fprintf(f, "# T_cam_imu takes a point in the IMU frame to the camera frame. A consumer that\n"
+               "# expects T_imu_cam -- the other direction -- has to invert it:\n"
+               "# T_imu_cam = inv(T_cam_imu).\n");
 
     for(int i = 0; i < 2; i++){
         const gs130_camera_intrinsics_t *ci = i ? &cal->camera_left : &cal->camera_right;

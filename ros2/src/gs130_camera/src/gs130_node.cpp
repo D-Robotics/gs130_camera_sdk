@@ -218,6 +218,19 @@ private:
 
   sensor_msgs::msg::CameraInfo camera_info_for(bool left_eye, const rclcpp::Time & stamp) const;
 
+  /**
+   * @brief ROS time for a device timestamp.
+   *
+   * The camera frames and the IMU packets carry timestamps from the same device clock, whose
+   * epoch is not the ROS clock's. The offset between the two clocks is measured from the first
+   * item that carries a device timestamp and reused for both streams, so their relative timing
+   * survives the conversion.
+   *
+   * @param[in] device_ns Device timestamp in nanoseconds; 0 means the item carries none.
+   * @return The matching ROS time, or the current time when @p device_ns is 0.
+   */
+  rclcpp::Time device_stamp(uint64_t device_ns);
+
   // Validated ROS parameters and values derived from them.
   std::string device_model_;
   std::string camera_mode_;
@@ -226,6 +239,9 @@ private:
   std::string left_image_topic_;
   std::string right_image_topic_;
   std::string imu_topic_;
+  // ISP tuning override. Empty keeps whatever the platform preset names; a value replaces
+  // it, and the platform reads the literal "disable" as "load no tuning".
+  std::string tuning_file_;
   std::string frame_id_;
   std::string right_frame_id_;
   std::string imu_frame_id_;
@@ -234,6 +250,9 @@ private:
   uint32_t fps_ = 30;
   uint32_t odr_ = 200;
   int64_t timer_period_ms_ = 1;
+  // Device clock to ROS clock offset in nanoseconds, filled by device_stamp().
+  int64_t stamp_offset_ns_ = 0;
+  bool stamp_offset_valid_ = false;
   bool gray_ = false;
   bool stitched_ = false;
 
@@ -292,6 +311,10 @@ void Gs130Node::declare_parameters()
   camera_mode_ = declare_parameter<std::string>("camera_mode", "rect");
   stitch_ = declare_parameter<std::string>("stitch", "none");
 
+  // Empty leaves the platform preset's own choice in place; "disable" means load no tuning
+  // at all, which is the literal the platform's camera stack treats as "no effect library".
+  tuning_file_ = declare_parameter<std::string>("tuning_file", "");
+
   // Topic parameters default to the existing mipi_cam naming convention. CameraInfo
   // and grayscale topic names are derived from their corresponding image topic.
   image_topic_ = declare_parameter<std::string>("image_topic", "image_combine");
@@ -331,9 +354,17 @@ void Gs130Node::declare_parameters()
 gs130_config_t Gs130Node::build_config() const
 {
   // Keep the GNU C preset macro in config.c; this translation unit remains C++17.
-  return gs130_camera_config_from_define(
+  gs130_config_t config = gs130_camera_config_from_define(
     device_model_.c_str(), camera_mode_of(camera_mode_),
     eye_width_, eye_height_, fps_, odr_, stitch_of(stitch_));
+
+  // The preset names the platform's default effect library. An empty parameter keeps it;
+  // anything else replaces it, so "disable" (or any library name) can be chosen per launch.
+  // tuning_file_ outlives the returned struct, which is borrowed until gs130_init returns.
+  if (!tuning_file_.empty()) {
+    config.camera_config.tuning_file = tuning_file_.c_str();
+  }
+  return config;
 }
 
 void Gs130Node::open_device()
@@ -497,9 +528,9 @@ void Gs130Node::release_frames()
 
 void Gs130Node::publish_camera()
 {
-  // ROS messages use publication time. The SDK hardware timestamp is retained only
-  // for cross-stream ordering in timer_callback().
-  const rclcpp::Time stamp = now();
+  // Stamp from the device timestamp. Publication time follows the timer that drains the
+  // stream and would carry no relation to when the frame was captured.
+  const rclcpp::Time stamp = device_stamp(frame_left_.timestamp_ns);
 
   if (calibrated_) {
     left_info_publisher_->publish(camera_info_for(true, stamp));
@@ -523,12 +554,23 @@ void Gs130Node::publish_camera()
   release_frames();
 }
 
+rclcpp::Time Gs130Node::device_stamp(uint64_t device_ns)
+{
+  if (device_ns == 0) {
+    return now();
+  }
+  if (!stamp_offset_valid_) {
+    stamp_offset_ns_ = now().nanoseconds() - static_cast<int64_t>(device_ns);
+    stamp_offset_valid_ = true;
+  }
+  return rclcpp::Time(static_cast<int64_t>(device_ns) + stamp_offset_ns_);
+}
+
 void Gs130Node::publish_imu()
 {
   sensor_msgs::msg::Imu message;
-  // Match camera-message semantics: stamp at publication, use packet timestamp only
-  // to preserve device sampling order across the two streams.
-  message.header.stamp = now();
+  // Stamp from the device timestamp, on the same clock as the camera messages.
+  message.header.stamp = device_stamp(packet_.timestamp_ns);
   message.header.frame_id = imu_frame_id_;
 
   // The device reports no orientation: identity plus the first covariance element

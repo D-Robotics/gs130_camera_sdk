@@ -3,11 +3,7 @@
  * @brief RDK X5 pipeline: camera probe/init, VIN-ISP-VSE/GDC flow setup, frame fetch.
  *
  * Backend of gs130::pipeline::Pipeline for the RDK X5 / Horizon driver stack, built
- * on the node helpers declared in RDKX5.h. It implements the platform-independent
- * interface of pipeline.hpp: the constructor probes both eyes over I2C, init() builds
- * one vflow per eye (camera -> VIN -> ISP, optionally GDC and VSE), start() starts
- * both flows, get_frame() copies frames into caller buffers, and deinit() tears the
- * hardware down again.
+ * on the node helpers declared in RDKX5.h.
  *
  * Ownership: acquired handles and buffers are stored in Impl. deinit() releases a
  * fully initialized stream; see pipeline.hpp for the partial-initialization limitation.

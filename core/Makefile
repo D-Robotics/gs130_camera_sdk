@@ -60,6 +60,14 @@ PLATFORM_IMPL = -DGS130_PLATFORM_IMPL='"devices/pipeline/$(PLATFORM)/$(PLATFORM)
 # platform name string, embedded for gs130_platform()
 PLATFORM_STR  = -DGS130_PLATFORM='"$(PLATFORM)"'
 
+# Platform headers that are not on the compiler's default search path. RDKX5
+# installs its Horizon headers into /usr/include, which is searched anyway;
+# RDKS100 and RDKS600 keep them under /usr/hobot/include, which is not, so they
+# need the -I. Their hbn_isp_cfg.h includes "cJSON.h" bare while the package
+# installs it under /usr/include/cjson, so that directory is needed too. Kept per
+# platform so adding one cannot shadow another's headers.
+PLATFORM_INCLUDES := $(if $(filter RDKS100 RDKS600,$(PLATFORM)), -I/usr/hobot/include -I/usr/include/cjson)
+
 # ---- Version ----
 
 VERSION_FILE := ../VERSION
@@ -80,7 +88,7 @@ CXX = g++
 COMMON_FLAGS = -Wall -Wextra -O2 -g -fPIC -MMD -MP
 CFLAGS   = $(COMMON_FLAGS) -std=gnu11
 CXXFLAGS = $(COMMON_FLAGS) -std=gnu++17 $(PLATFORM_IMPL) $(VERSION_DEF) $(PLATFORM_STR)
-INCLUDES = -Iinclude -Isrc -I/usr/include/opencv4
+INCLUDES = -Iinclude -Isrc -I/usr/include/opencv4$(PLATFORM_INCLUDES)
 # Linking against the static OpenCV archives dominates every link; ld.gold links
 # these archives noticeably faster than the default ld.bfd and produces the same
 # library. Used when it is installed, otherwise the default linker is kept.
@@ -88,18 +96,49 @@ LDFLAGS_GOLD = $(shell command -v ld.gold >/dev/null 2>&1 && echo -fuse-ld=gold)
 # glibc stays dynamic: libc.so.6 / libm.so.6 / ld.so cannot be linked into a shared
 # library, and libpthread/librt/libdl are part of libc here (no NEEDED of their own).
 # zlib is linked statically, so libz.so.1 is not a runtime dependency either.
-# The static OpenCV core calls into TBB and the image ships no libtbb.a, so
-# libtbb.so.2 is the only remaining non-glibc, non-Horizon runtime dependency.
+# The static OpenCV core calls into TBB and the image ships no libtbb.a, so a
+# libtbb shared object is the only remaining non-glibc, non-Horizon runtime
+# dependency. Its SONAME depends on the TBB generation the image carries
+# (libtbb.so.2 on the RDK X5 and S100 images, libtbb.so.12 on the S600 one), so
+# resolve it from what is installed instead of naming one version.
 GLIBC_LIBS  := -lm -lpthread -lrt -ldl
 ZLIB_STATIC := /usr/lib/aarch64-linux-gnu/libz.a
-TBB_LIB     := /usr/lib/aarch64-linux-gnu/libtbb.so.2
+TBB_SONAMES := libtbb.so.2 libtbb.so.12 libtbb.so
+TBB_DIR     := /usr/lib/aarch64-linux-gnu
+TBB_FILES   := $(foreach so,$(TBB_SONAMES),$(wildcard $(TBB_DIR)/$(so)))
+# Prefer a libtbb that some package owns: a stray copy (left behind by another
+# SDK, or a compatibility symlink) must not decide the dependency name.
+TBB_LIB     := $(firstword $(foreach f,$(TBB_FILES),$(if $(shell dpkg -S $(f) 2>/dev/null),$(f))))
+ifeq ($(strip $(TBB_LIB)),)
+TBB_LIB     := $(firstword $(TBB_FILES))
+endif
+ifeq ($(strip $(TBB_LIB)),)
+$(error no libtbb shared object found under $(TBB_DIR))
+endif
+# Name the dependency after whichever package provides the library actually
+# linked, rather than guessing from the SONAME: the generation names differ
+# across Ubuntu releases (libtbb2 on 22.04 / jammy, libtbb12 on 24.04 / noble)
+# and an image can carry both SONAMEs at once. Fall back to the SONAME only
+# when nothing owns the file.
+TBB_OWNER := $(firstword $(shell dpkg -S $(TBB_LIB) 2>/dev/null | cut -d: -f1))
+TBB_SOVER := $(patsubst libtbb.so.%,%,$(notdir $(TBB_LIB)))
+TBB_PKG   := $(if $(strip $(TBB_OWNER)),$(TBB_OWNER),$(if $(filter $(TBB_SOVER),2 12),libtbb$(TBB_SOVER),libtbb2 | libtbb12))
+# The static OpenCV archives also reference OpenGL and LAPACK/BLAS entry points, from
+# their calib3d module. A shared object is allowed to carry undefined symbols, but the
+# Python bindings open libgs130 with eager relocation, so an unresolved one fails the
+# dlopen even though nothing here calls those functions -- the C samples only survive
+# because their own symbol resolution stays lazy. Name the providers, resolving them
+# from what is installed as the TBB SONAME is. liblapack pulls in libblas and
+# libgfortran by itself, so those are not named.
+OPENCV_SYS_SONAMES := libGL.so.1 liblapack.so.3
+OPENCV_SYS_LIBS    := $(foreach so,$(OPENCV_SYS_SONAMES),$(if $(wildcard /usr/lib/aarch64-linux-gnu/$(so)),-l:$(so)))
 # -static-libstdc++/-static-libgcc embed the C++ runtime, dropping libstdc++.so.6 and
 # libgcc_s.so.1 from NEEDED; --exclude-libs,ALL keeps the symbols taken from those
 # static archives out of the dynamic symbol table, so only the C API and the
 # library's own symbols are exported.
 LDFLAGS_SELF := -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL
 LDFLAGS  = -L$(HBN_LIB_DIR) $(LDFLAGS_SELF)
-LIBS     = $(HBN_LIBS) $(GLIBC_LIBS) $(OPENCV_LIBS) $(ZLIB_STATIC) $(TBB_LIB)
+LIBS     = $(HBN_LIBS) $(GLIBC_LIBS) $(OPENCV_LIBS) $(ZLIB_STATIC) $(TBB_LIB) $(OPENCV_SYS_LIBS)
 
 # ---- Sources ----
 
@@ -314,7 +353,7 @@ $(DEB_FILE): $(LIB_STATIC) $(LIB_FULL) $(SAMPLE_BINS) $(TOOL_BINS) $(OUT_DIR)/gs
 	    echo "Maintainer: $(DEB_MAINTAINER)"; \
 	    echo "Section: misc"; \
 	    echo "Priority: optional"; \
-	    echo "Depends: libc6 (>= 2.34), libtbb2, hobot-multimedia"; \
+	    echo "Depends: libc6 (>= 2.34), $(TBB_PKG), hobot-multimedia"; \
 	    echo "Description: GS130 stereo camera and IMU SDK for $(PLATFORM)"; \
 	    echo " Camera and IMU capture library with the gs130 command line tool."; \
 	    echo " The $(PLATFORM) backend is compiled into the library."; \

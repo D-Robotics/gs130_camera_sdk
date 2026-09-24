@@ -16,7 +16,7 @@
 | 原生库 | `libgs130.so`（`gs130-camera` 软件包） |
 | 运行时依赖 | `numpy` |
 | 类型支持 | 自带 `py.typed` 与 `__init__.pyi` |
-| 支持平台 | RDK X5（RDK S100 / RDK S600 开发中） |
+| 支持平台 | RDK X5、RDK S100、RDK S600 |
 
 ## 🧩 依赖
 

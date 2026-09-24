@@ -25,7 +25,7 @@ from launch_ros.descriptions import ParameterValue
 # explicit conversion before the parameter reaches the node. The order mirrors
 # declare_parameters() in src/gs130_node.cpp.
 ARGUMENTS = (
-    ("device", "GS130WI", str, "Camera model (GS130WI or GS130W)"),
+    ("device", "GS130WI", str, "Camera model (GS130WI, GS130W, GS130W_NO_EEPROM or GS130WI_20260924)"),
     ("camera_mode", "rect", str, "Camera mode (raw, rect, or resize)"),
     (
         "stitch",
@@ -52,6 +52,13 @@ ARGUMENTS = (
     ("frame_id", "camera_link", str, "Frame of the left eye and of the stitched frame"),
     ("right_frame_id", "camera_right_link", str, "Frame of the right eye"),
     ("imu_frame_id", "imu_link", str, "Frame the IMU samples are stamped with"),
+    (
+        "tuning_file",
+        "",
+        str,
+        "ISP effect library to load; empty keeps the platform default, "
+        "'disable' loads none",
+    ),
 )
 
 

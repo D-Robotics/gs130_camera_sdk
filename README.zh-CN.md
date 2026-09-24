@@ -23,11 +23,11 @@ GS130 Camera SDK 提供在 RDK 系列开发板上使用 GS130 双目相机及板
 ## 🧩 依赖
 
 - **硬件**：RDK 系列开发板与 GS130 系列双目相机。部分机型带 IMU。
-- **Core**：地平线多媒体库（`libvpf`、`libhbmem` 与 `libcam`，安装于 `/usr/hobot/lib`）、OpenCV 4 开发头文件、`libtbb.so.2`，以及支持 C11 与 C++17 的 GCC 工具链。
+- **Core**：地平线多媒体库（`libvpf`、`libhbmem` 与 `libcam`，安装于 `/usr/hobot/lib`）、OpenCV 4 开发头文件、TBB 共享库（`libtbb.so.2` 或 `libtbb.so.12`，按镜像实际安装的解析）、镜像中静态 OpenCV 所引用的 OpenGL 与 LAPACK 共享库（`libGL.so.1`、`liblapack.so.3`），以及支持 C11 与 C++17 的 GCC 工具链。
 - **Python 封装**：Python 3.10 或更高版本与 `numpy`；构建 wheel 还需要 `setuptools` 与 `wheel`。
 - **ROS 2 封装**：ROS 2 Humble 或 Jazzy。网页预览与双目深度两个 launch 还需要 TROS 的 `hobot_codec`、`websocket` 与 `hobot_stereonet`。
 
-本版本实现了 RDK X5 后端，RDK S100 与 RDK S600 的支持仍在开发中。
+本版本实现了 RDK X5、RDK S100 与 RDK S600 后端。
 
 ## 🗂️ 仓库结构
 
@@ -204,7 +204,7 @@ ros2 launch gs130_camera gs130_stereonet.launch.py   # 在同一页面上查看�
 
 - **硬件级校正。** 在 `rect` 模式下，去畸变与校正由 GDC 硬件完成，无需主机侧图像处理。
 - **可选双目布局。** 双目可分别输出，也可按四种布局合并为单帧。
-- **EEPROM 标定。** 内参、畸变系数、外参与 IMU 参数均从板载 EEPROM 读取，并支持导出为 Kalibr YAML；校正后会写回虚拟内参。
+- **EEPROM 标定。** 内参、畸变系数、外参与 IMU 参数均从板载 EEPROM 读取，并支持导出为 Kalibr YAML；校正后会写回虚拟内参。导出的 `T_cam_imu` 方向为 IMU→相机；下游若把该键当作 `T_imu_cam` 使用（例如 OpenVINS），需要取逆 —— 导出文件头部有相应说明。
 - **FSYNC 对齐的 IMU。** 以相机为 IMU 的时间基准，两路数据统一在同一时钟上表示。
 - **标准 ROS 2 接口。** 图像、相机信息、惯性数据与静态变换均以标准消息发布，不引入自定义消息类型。
 - **版本一致。** 原生库与 Python 封装共用 `VERSION` 中的版本号，封装会拒绝加载版本低于软件包的原生库。

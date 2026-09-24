@@ -16,7 +16,7 @@
 | Native library | `libgs130.so` (the `gs130-camera` package) |
 | Runtime dependency | `numpy` |
 | Typing | ships `py.typed` and `__init__.pyi` |
-| Platform | RDK X5 (RDK S100 / RDK S600 in development) |
+| Platform | RDK X5, RDK S100, RDK S600 |
 
 ## 🧩 Requirements
 
