@@ -6,7 +6,7 @@
  *
  *   Positional arguments, all required, no flags:
  *
- *   <device>  device model: GS130WI | GS130W | GS130W_NO_EEPROM
+ *   <device>  device model: GS130WI | GS130W | GS130W_NO_EEPROM | GS130WI_20260924
  *   <mode>    pipeline mode: raw | resize | rect (anything else means raw)
  *   <width>   output width in pixels
  *   <height>  output height in pixels

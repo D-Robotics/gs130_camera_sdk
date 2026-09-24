@@ -7,7 +7,7 @@
  *   Positional arguments, all required, no flags:
  *
  *   <dir>     output directory, created when missing
- *   <device>  device model: GS130WI | GS130W | GS130W_NO_EEPROM
+ *   <device>  device model: GS130WI | GS130W | GS130W_NO_EEPROM | GS130WI_20260924
  *   <mode>    pipeline mode: raw | resize | rect (anything else means raw)
  *   <width>   output width in pixels
  *   <height>  output height in pixels
@@ -20,7 +20,9 @@
  * output: both the YAML text on stdout and one file per document in <dir>
  *
  *   <dir>/camchain.yaml   camera intrinsics, plus the T_cam_imu and T_cn_cnm1
- *                         extrinsics when an IMU is present
+ *                         extrinsics when an IMU is present. Its header states the
+ *                         direction of T_cam_imu (IMU to camera) and that a consumer
+ *                         expecting T_imu_cam has to invert it.
  *   <dir>/imu.yaml        IMU noise and intrinsics; written only when an IMU is
  *                         present (update_rate is the <odr> argument)
  *
@@ -151,6 +153,9 @@ static char *camchain_yaml(gs130_device_t *dev, const gs130_calibration_t *cal,
     if(imu_missing)
         fprintf(f, "# warning: the configuration expects an IMU but the device reported "
                    "none; T_cam_imu is omitted, so this file is camera-only\n");
+    fprintf(f, "# T_cam_imu takes a point in the IMU frame to the camera frame. A consumer that\n"
+               "# expects T_imu_cam -- the other direction -- has to invert it:\n"
+               "# T_imu_cam = inv(T_cam_imu).\n");
 
     for(int i = 0; i < 2; i++){
         const gs130_camera_intrinsics_t *ci = i ? &cal->camera_left : &cal->camera_right;
