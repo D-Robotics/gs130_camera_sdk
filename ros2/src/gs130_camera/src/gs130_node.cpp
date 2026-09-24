@@ -218,6 +218,19 @@ private:
 
   sensor_msgs::msg::CameraInfo camera_info_for(bool left_eye, const rclcpp::Time & stamp) const;
 
+  /**
+   * @brief ROS time for a device timestamp.
+   *
+   * The camera frames and the IMU packets carry timestamps from the same device clock, whose
+   * epoch is not the ROS clock's. The offset between the two clocks is measured from the first
+   * item that carries a device timestamp and reused for both streams, so their relative timing
+   * survives the conversion.
+   *
+   * @param[in] device_ns Device timestamp in nanoseconds; 0 means the item carries none.
+   * @return The matching ROS time, or the current time when @p device_ns is 0.
+   */
+  rclcpp::Time device_stamp(uint64_t device_ns);
+
   // Validated ROS parameters and values derived from them.
   std::string device_model_;
   std::string camera_mode_;
@@ -237,6 +250,9 @@ private:
   uint32_t fps_ = 30;
   uint32_t odr_ = 200;
   int64_t timer_period_ms_ = 1;
+  // Device clock to ROS clock offset in nanoseconds, filled by device_stamp().
+  int64_t stamp_offset_ns_ = 0;
+  bool stamp_offset_valid_ = false;
   bool gray_ = false;
   bool stitched_ = false;
 
@@ -512,9 +528,9 @@ void Gs130Node::release_frames()
 
 void Gs130Node::publish_camera()
 {
-  // ROS messages use publication time. The SDK hardware timestamp is retained only
-  // for cross-stream ordering in timer_callback().
-  const rclcpp::Time stamp = now();
+  // Stamp from the device timestamp. Publication time follows the timer that drains the
+  // stream and would carry no relation to when the frame was captured.
+  const rclcpp::Time stamp = device_stamp(frame_left_.timestamp_ns);
 
   if (calibrated_) {
     left_info_publisher_->publish(camera_info_for(true, stamp));
@@ -538,12 +554,23 @@ void Gs130Node::publish_camera()
   release_frames();
 }
 
+rclcpp::Time Gs130Node::device_stamp(uint64_t device_ns)
+{
+  if (device_ns == 0) {
+    return now();
+  }
+  if (!stamp_offset_valid_) {
+    stamp_offset_ns_ = now().nanoseconds() - static_cast<int64_t>(device_ns);
+    stamp_offset_valid_ = true;
+  }
+  return rclcpp::Time(static_cast<int64_t>(device_ns) + stamp_offset_ns_);
+}
+
 void Gs130Node::publish_imu()
 {
   sensor_msgs::msg::Imu message;
-  // Match camera-message semantics: stamp at publication, use packet timestamp only
-  // to preserve device sampling order across the two streams.
-  message.header.stamp = now();
+  // Stamp from the device timestamp, on the same clock as the camera messages.
+  message.header.stamp = device_stamp(packet_.timestamp_ns);
   message.header.frame_id = imu_frame_id_;
 
   // The device reports no orientation: identity plus the first covariance element
