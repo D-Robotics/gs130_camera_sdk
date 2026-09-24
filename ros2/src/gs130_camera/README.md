@@ -105,7 +105,7 @@ Either way the node also publishes:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `device` | `GS130WI` | Camera model: `GS130WI`, `GS130W` or `GS130W_NO_EEPROM` |
+| `device` | `GS130WI` | Camera model: `GS130WI`, `GS130W`, `GS130W_NO_EEPROM` or `GS130WI_20260924` |
 | `camera_mode` | `rect` | `raw` / `resize` / `rect` |
 | `stitch` | `none` | `none` / `left_right` / `right_left` / `top_bottom` / `bottom_top` |
 | `output_width` | `544` | Output width of one eye, in pixels |

@@ -51,6 +51,45 @@ def GS130_CONFIG_RDKX5_GS130WI(mode, width, height, fps, odr):
     values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
     return values
 
+def GS130_CONFIG_RDKX5_GS130WI_20260924(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKX5_GS130WI_20260924`` macro.
+
+    Differs from :func:`GS130_CONFIG_RDKX5_GS130WI` in one field: the IMU FSYNC follows
+    the left eye instead of the right. Every other field is copied from that preset.
+    """
+    values = config()
+    values["camera_config"].update(
+        bus=[4, 6],
+        left_addr=0x30,
+        right_addr=0x32,
+        sensor_width=1088,
+        sensor_height=1280,
+        fps=fps,
+        line_length=1400,
+        frame_length=1500,
+        tuning_file=None,
+        output_width=width,
+        output_height=height,
+        mode=mode,
+        stereo_layout=StereoLayout.NONE,
+        bus_mipi_rx={4: 2, 6: 0},
+        bus_reset_gpio={4: 351, 6: 353},
+        fsync_camera=CameraIndex.LEFT,
+    )
+    values["imu_config"].update(
+        bus=[4, 6],
+        addr=0x68,
+        odr_hz=odr,
+        accel_fsr_g=16,
+        gyro_fsr_dps=2000,
+        accel_bw_sel=0,
+        gyro_bw_sel=0,
+    )
+    values["eeprom_config"].update(bus=[4, 6], addr=0x50)
+    values["camera_fifo"].update(depth=4, mode=FifoMode.DROP_OLD)
+    values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
+    return values
+
 
 def GS130_CONFIG_RDKX5_GS130W(mode, width, height, fps, odr):
     """Mirror of the ``GS130_CONFIG_RDKX5_GS130W`` macro.
@@ -176,6 +215,45 @@ def GS130_CONFIG_RDKS100_GS130WI(mode, width, height, fps, odr):
     values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
     return values
 
+def GS130_CONFIG_RDKS100_GS130WI_20260924(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKS100_GS130WI_20260924`` macro.
+
+    Differs from :func:`GS130_CONFIG_RDKS100_GS130WI` in one field: the IMU FSYNC follows
+    the left eye instead of the right. Every other field is copied from that preset.
+    """
+    values = config()
+    values["camera_config"].update(
+        bus=[1, 2],
+        left_addr=0x30,
+        right_addr=0x32,
+        sensor_width=1088,
+        sensor_height=1280,
+        fps=fps,
+        line_length=1400,
+        frame_length=1500,
+        tuning_file="lib_sc132gs_linear.so",
+        output_width=width,
+        output_height=height,
+        mode=mode,
+        stereo_layout=StereoLayout.NONE,
+        bus_mipi_rx={1: 0, 2: 1},
+        bus_reset_gpio={},
+        fsync_camera=CameraIndex.LEFT,
+    )
+    values["imu_config"].update(
+        bus=[2],
+        addr=0x68,
+        odr_hz=odr,
+        accel_fsr_g=16,
+        gyro_fsr_dps=2000,
+        accel_bw_sel=0,
+        gyro_bw_sel=0,
+    )
+    values["eeprom_config"].update(bus=[2], addr=0x50)
+    values["camera_fifo"].update(depth=4, mode=FifoMode.DROP_OLD)
+    values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
+    return values
+
 
 def GS130_CONFIG_RDKS100_GS130W(mode, width, height, fps, odr):
     """Mirror of the ``GS130_CONFIG_RDKS100_GS130W`` macro.
@@ -252,6 +330,45 @@ def GS130_CONFIG_RDKS600_GS130WI(mode, width, height, fps, odr):
     values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
     return values
 
+def GS130_CONFIG_RDKS600_GS130WI_20260924(mode, width, height, fps, odr):
+    """Mirror of the ``GS130_CONFIG_RDKS600_GS130WI_20260924`` macro.
+
+    Differs from :func:`GS130_CONFIG_RDKS600_GS130WI` in one field: the IMU FSYNC follows
+    the left eye instead of the right. Every other field is copied from that preset.
+    """
+    values = config()
+    values["camera_config"].update(
+        bus=[4, 5],
+        left_addr=0x30,
+        right_addr=0x32,
+        sensor_width=1088,
+        sensor_height=1280,
+        fps=fps,
+        line_length=1400,
+        frame_length=1500,
+        tuning_file="lib_sc132gs_linear.so",
+        output_width=width,
+        output_height=height,
+        mode=mode,
+        stereo_layout=StereoLayout.NONE,
+        bus_mipi_rx={4: 4, 5: 5},
+        bus_reset_gpio={4: 411, 5: 412},
+        fsync_camera=CameraIndex.LEFT,
+    )
+    values["imu_config"].update(
+        bus=[5],
+        addr=0x68,
+        odr_hz=odr,
+        accel_fsr_g=16,
+        gyro_fsr_dps=2000,
+        accel_bw_sel=0,
+        gyro_bw_sel=0,
+    )
+    values["eeprom_config"].update(bus=[5], addr=0x50)
+    values["camera_fifo"].update(depth=4, mode=FifoMode.DROP_OLD)
+    values["imu_fifo"].update(depth=1024, mode=FifoMode.DROP_OLD)
+    return values
+
 
 def GS130_CONFIG_RDKS600_GS130W(mode, width, height, fps, odr):
     """Mirror of the ``GS130_CONFIG_RDKS600_GS130W`` macro.
@@ -296,12 +413,15 @@ def GS130_CONFIG_RDKS600_GS130W_NO_EEPROM(mode, width, height, fps, odr):
 
 PRESETS = {
     ("RDKX5", "GS130WI"): GS130_CONFIG_RDKX5_GS130WI,
+    ("RDKX5", "GS130WI_20260924"): GS130_CONFIG_RDKX5_GS130WI_20260924,
     ("RDKX5", "GS130W"): GS130_CONFIG_RDKX5_GS130W,
     ("RDKX5", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKX5_GS130W_NO_EEPROM,
     ("RDKS100", "GS130WI"): GS130_CONFIG_RDKS100_GS130WI,
+    ("RDKS100", "GS130WI_20260924"): GS130_CONFIG_RDKS100_GS130WI_20260924,
     ("RDKS100", "GS130W"): GS130_CONFIG_RDKS100_GS130W,
     ("RDKS100", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKS100_GS130W_NO_EEPROM,
     ("RDKS600", "GS130WI"): GS130_CONFIG_RDKS600_GS130WI,
+    ("RDKS600", "GS130WI_20260924"): GS130_CONFIG_RDKS600_GS130WI_20260924,
     ("RDKS600", "GS130W"): GS130_CONFIG_RDKS600_GS130W,
     ("RDKS600", "GS130W_NO_EEPROM"): GS130_CONFIG_RDKS600_GS130W_NO_EEPROM,
 }

@@ -13,7 +13,7 @@
  *   <out_dir>             output directory, created when missing
  *   <stitch>              non-zero records one stitched left-right frame per
  *                         camera index, 0 records one file per eye
- *   <device>              device model: GS130WI | GS130W | GS130W_NO_EEPROM
+ *   <device>              device model: GS130WI | GS130W | GS130W_NO_EEPROM | GS130WI_20260924
  *   <mode>                pipeline mode: raw | resize | rect (anything else is raw)
  *   <width>, <height>     output size in pixels
  *   <fps>                 camera frame rate
