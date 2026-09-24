@@ -164,7 +164,7 @@ bgr = cv2.cvtColor(images["left"], cv2.COLOR_YUV2BGR_NV12)
 - **安全的生命周期**：`Device` 支持 `with` 语句；未关闭时给出 `ResourceWarning` 提示，且关闭过程中的失败不会掩盖正在传播的异常。
 - **带类型信息**：包内提供 `py.typed` 与 `__init__.pyi`，编辑器与类型检查器可识别完整 API。
 
-暂不支持：图像处理、立体匹配、IMU 滤波、录制，以及 `libgs130` 自身报告之外的设备发现。
+暂不支持：图像处理、立体匹配、IMU 滤波、录制与 `libgs130` 自身报告之外的设备发现。
 
 ## 🧪 硬件测试
 

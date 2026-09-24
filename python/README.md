@@ -164,7 +164,7 @@ The configuration is a plain nested dict with five sections, mirroring `gs130_co
 - **Safe lifetime**: `Device` is a context manager and also warns with a `ResourceWarning` if it is left unclosed; a failure while closing never masks the exception already propagating.
 - **Typed**: the package ships `py.typed` and `__init__.pyi`, so editors and type checkers see the full API.
 
-Not implemented: image processing, stereo matching, IMU filtering, recording, and any device discovery beyond what `libgs130` itself reports.
+Not implemented: image processing, stereo matching, IMU filtering, recording, or device discovery beyond what `libgs130` itself reports.
 
 ## 🧪 Hardware test
 

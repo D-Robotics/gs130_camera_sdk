@@ -2,7 +2,7 @@
 
 **简体中文** | [English](README.md)
 
-GS130 Camera SDK 提供在 RDK 系列开发板上使用 GS130 双目相机及板载 IMU 所需的软件组件，由一个原生 C 库，以及构建于其上的 Python 与 ROS 2 两个封装层组成。
+GS130 Camera SDK 供 GS130 双目相机与板载 IMU 在 RDK 系列开发板上使用，由一个原生 C 库与构建其上的 Python、ROS 2 两个封装层组成。
 
 > **开发者预览（Alpha）版本。** 本版本供评估使用，接口、配置预设与行为可能随时调整，恕不另行通知。欢迎通过[地瓜机器人开发者社区](https://forum.d-robotics.cc/)或邮件 [xiaoye.zhang@d-robotics.cc](mailto:xiaoye.zhang@d-robotics.cc) 反馈问题、参与共建。
 
@@ -10,7 +10,7 @@ GS130 Camera SDK 提供在 RDK 系列开发板上使用 GS130 双目相机及板
 
 ## 📖 简介
 
-硬件链路由原生库统一实现，包括传感器采集与 ISP 处理、GDC 硬件校正、从板载 EEPROM 读取标定数据，以及通过 FSYNC 与相机时基对齐的 IMU 采样。以下三个层次分别对外提供接口，并独立发布。
+硬件链路仅在原生库中实现一次：传感器采集与 ISP 处理、GDC 校正、从板载 EEPROM 读取标定，以及经 FSYNC 与相机时基对齐的 IMU 采样。下列三个层次对其提供接口，并独立发布。
 
 | 层 | 目录 | 内容 |
 | --- | --- | --- |
@@ -23,7 +23,12 @@ GS130 Camera SDK 提供在 RDK 系列开发板上使用 GS130 双目相机及板
 ## 🧩 依赖
 
 - **硬件**：RDK 系列开发板与 GS130 系列双目相机。部分机型带 IMU。
-- **Core**：地平线多媒体库（`libvpf`、`libhbmem` 与 `libcam`，安装于 `/usr/hobot/lib`）、OpenCV 4 开发头文件、TBB 共享库（`libtbb.so.2` 或 `libtbb.so.12`，按镜像实际安装的解析）、镜像中静态 OpenCV 所引用的 OpenGL 与 LAPACK 共享库（`libGL.so.1`、`liblapack.so.3`），以及支持 C11 与 C++17 的 GCC 工具链。
+- **Core**：
+  - 地平线多媒体库：`libvpf`、`libhbmem`、`libcam`（安装于 `/usr/hobot/lib`）
+  - OpenCV 4 开发头文件
+  - TBB 共享库：`libtbb.so.2` 或 `libtbb.so.12`，以镜像实际安装者为准
+  - `libGL.so.1` 与 `liblapack.so.3`（镜像中静态 OpenCV 的引用对象）
+  - 支持 C11 与 C++17 的 GCC 工具链
 - **Python 封装**：Python 3.10 或更高版本与 `numpy`；构建 wheel 还需要 `setuptools` 与 `wheel`。
 - **ROS 2 封装**：ROS 2 Humble 或 Jazzy。网页预览与双目深度两个 launch 还需要 TROS 的 `hobot_codec`、`websocket` 与 `hobot_stereonet`。
 
@@ -49,7 +54,7 @@ LICENSE
 
 ### 1. Core
 
-库、工具与 Debian 包由 `core/` 下的 GNU Makefile 构建。`make` 可接受平台名，但仅当它位于命令行的第一个目标位置时才会生效。
+库、工具与 Debian 包由 `core/` 下的 GNU Makefile 构建。`make` 可接受平台名，仅在命令行首个目标位置生效。
 
 ```bash
 cd core
@@ -209,7 +214,7 @@ ros2 launch gs130_camera gs130_stereonet.launch.py   # 在同一页面上查看�
 - **标准 ROS 2 接口。** 图像、相机信息、惯性数据与静态变换均以标准消息发布，不引入自定义消息类型。
 - **版本一致。** 原生库与 Python 封装共用 `VERSION` 中的版本号，封装会拒绝加载版本低于软件包的原生库。
 
-本版本不提供以下能力：零拷贝传输（基于共享内存的 `hbm_img_msgs`）、自定义消息类型、IMU 滤波、参数运行时重配置，以及多设备同步。
+本版本不提供：零拷贝传输（基于共享内存的 `hbm_img_msgs`）、自定义消息类型、IMU 滤波、参数运行时重配置与多设备同步。
 
 ## 📄 许可证
 
