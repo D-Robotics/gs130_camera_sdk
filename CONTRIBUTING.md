@@ -2,12 +2,11 @@
 
 [简体中文](CONTRIBUTING.zh-CN.md) | **English**
 
-Thanks for taking the time to contribute. This document covers how a change gets
-into the project: where to send it, how to name the branch, what a commit message
-looks like, and what a reviewer will look at.
+How a change gets into the project: where to send it, how to name the branch,
+what a commit message looks like, and what a reviewer will look at.
 
 For what the code is, how to build it and how to run it, see the
-[README](README.md). This document covers the contribution process only.
+[README](README.md).
 
 ## Ways to contribute
 

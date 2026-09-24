@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | **English**
 
-The GS130 Camera SDK provides the software components required to operate the GS130 stereo camera and its onboard IMU from an RDK development board. It consists of a native C library and two wrappers built on top of it, one for Python and one for ROS 2.
+The GS130 Camera SDK supports the GS130 stereo camera and its onboard IMU on RDK boards. It is a native C library plus two wrappers built on it: Python, and ROS 2.
 
 > **Developer preview (Alpha).** This release is intended for evaluation. Interfaces, configuration presets and behaviour may change without notice. Feedback and contributions are welcome through the [D-Robotics developer community](https://forum.d-robotics.cc/) or by email to [xiaoye.zhang@d-robotics.cc](mailto:xiaoye.zhang@d-robotics.cc).
 
@@ -10,7 +10,7 @@ The GS130 Camera SDK provides the software components required to operate the GS
 
 ## 📖 Overview
 
-The hardware pipeline is implemented once, in the native library: sensor capture and ISP processing, rectification on the GDC hardware, calibration data read from the onboard EEPROM, and IMU sampling aligned to the camera time base through FSYNC. The three layers listed below expose that pipeline to applications and are delivered separately.
+The hardware pipeline is implemented once, in the native library: sensor capture and ISP processing, GDC rectification, calibration read from the onboard EEPROM, and IMU sampling aligned to the camera time base through FSYNC. The three layers below expose it and are delivered separately.
 
 | Layer | Directory | Contents |
 | --- | --- | --- |
@@ -23,7 +23,12 @@ Core must be installed before either wrapper can be used.
 ## 🧩 Requirements
 
 - **Hardware**: an RDK development board and a GS130 series stereo camera. Some camera models include an IMU.
-- **Core**: the Horizon multimedia libraries (`libvpf`, `libhbmem` and `libcam`, installed under `/usr/hobot/lib`), the OpenCV 4 development headers, a TBB shared library (`libtbb.so.2` or `libtbb.so.12`, resolved from what the image installs), the OpenGL and LAPACK shared libraries the image's static OpenCV references (`libGL.so.1`, `liblapack.so.3`), and a GCC toolchain with C11 and C++17 support.
+- **Core**:
+  - Horizon multimedia libraries: `libvpf`, `libhbmem`, `libcam` (under `/usr/hobot/lib`)
+  - OpenCV 4 development headers
+  - A TBB shared library: `libtbb.so.2` or `libtbb.so.12`, whichever the image installs
+  - `libGL.so.1` and `liblapack.so.3` (referenced by the image's static OpenCV)
+  - A GCC toolchain with C11 and C++17 support
 - **Python wrapper**: Python 3.10 or later and `numpy`. Building the wheel additionally requires `setuptools` and `wheel`.
 - **ROS 2 wrapper**: ROS 2 Humble or Jazzy. The web preview and stereo depth launch files also require the TROS packages `hobot_codec`, `websocket` and `hobot_stereonet`.
 
@@ -49,7 +54,7 @@ LICENSE
 
 ### 1. Core
 
-The library, the tools and the Debian package are built with the GNU Makefile in `core/`. A platform name may be passed to `make`, although it is only honoured as the first goal on the command line.
+The library, the tools and the Debian package are built with the GNU Makefile in `core/`. A platform name may be passed to `make`; it is honoured only as the first goal on the command line.
 
 ```bash
 cd core
@@ -209,7 +214,7 @@ ros2 launch gs130_camera gs130_stereonet.launch.py   # stereo depth on the same 
 - **Standard ROS 2 interfaces.** Images, camera information, inertial data and static transforms are published as standard messages; no custom message types are introduced.
 - **Consistent versioning.** The native library and the Python wrapper share the version declared in `VERSION`, and the wrapper rejects a library that is older than the package.
 
-The following capabilities are not provided in this release: zero-copy transport (`hbm_img_msgs` over shared memory), custom message types, IMU filtering, run-time reconfiguration of parameters, and synchronisation of multiple devices.
+Not provided in this release: zero-copy transport (`hbm_img_msgs` over shared memory), custom message types, IMU filtering, run-time reconfiguration of parameters, synchronisation of multiple devices.
 
 ## 📄 License
 

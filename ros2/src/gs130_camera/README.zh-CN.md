@@ -123,7 +123,7 @@ ros2 launch gs130_camera gs130.launch.py
 | `imu_frame_id` | `imu_link` | IMU 坐标系 |
 | `tuning_file` | 空 | ISP 效果库；**空 = 沿用平台预设**（S100 预设为 `lib_sc132gs_linear.so`），`disable` = **不加载任何 tuning**，其他值 = 换成该库（平台在 `/usr/hobot/lib/sensor/` 内按名解析，无需全路径） |
 
-`output_width`、`output_height`、`fps`、`odr` 必须为正整数，`timer_period_ms` 必须为正，`camera_mode` 与 `stitch` 必须为上述取值之一，否则节点启动即报错。
+`output_width`、`output_height`、`fps` 与 `odr` 必须为正整数，`timer_period_ms` 必须为正。`camera_mode` 与 `stitch` 必须为上述取值之一，否则节点启动即报错。
 
 ## ✨ 特性
 
