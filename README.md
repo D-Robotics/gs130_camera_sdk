@@ -204,7 +204,7 @@ ros2 launch gs130_camera gs130_stereonet.launch.py   # stereo depth on the same 
 
 - **Hardware rectification.** In `rect` mode, undistortion and rectification are performed on the GDC hardware, so no host-side image processing is required.
 - **Selectable stereo layouts.** The two eyes may be delivered separately or combined into a single frame, using one of four layouts.
-- **Calibration from the EEPROM.** Intrinsics, distortion coefficients, extrinsics and IMU parameters are read from the onboard EEPROM and can be exported as Kalibr YAML. After rectification, virtual intrinsics are written back.
+- **Calibration from the EEPROM.** Intrinsics, distortion coefficients, extrinsics and IMU parameters are read from the onboard EEPROM and can be exported as Kalibr YAML. After rectification, virtual intrinsics are written back. The exported `T_cam_imu` is IMU-to-camera; a consumer that reads that key as `T_imu_cam` (OpenVINS does) has to invert it, and the exported file's header says so.
 - **FSYNC-aligned IMU.** The camera drives the IMU time base, so both streams are expressed on a single clock.
 - **Standard ROS 2 interfaces.** Images, camera information, inertial data and static transforms are published as standard messages; no custom message types are introduced.
 - **Consistent versioning.** The native library and the Python wrapper share the version declared in `VERSION`, and the wrapper rejects a library that is older than the package.
