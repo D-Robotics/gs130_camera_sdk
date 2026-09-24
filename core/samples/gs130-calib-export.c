@@ -20,7 +20,9 @@
  * output: both the YAML text on stdout and one file per document in <dir>
  *
  *   <dir>/camchain.yaml   camera intrinsics, plus the T_cam_imu and T_cn_cnm1
- *                         extrinsics when an IMU is present
+ *                         extrinsics when an IMU is present. Its header states the
+ *                         direction of T_cam_imu (IMU to camera) and that a consumer
+ *                         expecting T_imu_cam has to invert it.
  *   <dir>/imu.yaml        IMU noise and intrinsics; written only when an IMU is
  *                         present (update_rate is the <odr> argument)
  *
@@ -122,6 +124,9 @@ static char *camchain_yaml(gs130_device_t *dev, const gs130_calibration_t *cal,
 
     fprintf(f, "# gs130 EEPROM calibration, Kalibr camchain format\n");
     fprintf(f, "# p_to = T * p_from (T_cam_imu: IMU -> camera, T_cn_cnm1: cam0 -> cam1)\n");
+    fprintf(f, "# T_cam_imu takes a point in the IMU frame to the camera frame. A consumer that\n"
+               "# expects T_imu_cam -- the other direction -- has to invert it:\n"
+               "# T_imu_cam = inv(T_cam_imu).\n");
 
     for(int i = 0; i < 2; i++){
         const gs130_camera_intrinsics_t *ci = i ? &cal->camera_left : &cal->camera_right;
